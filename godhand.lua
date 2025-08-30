@@ -13,6 +13,8 @@ _G.PlayerDatabase = {}
 _G.PlayerDB_Enabled = true
 _G.HighPingNotifier_Enabled = false
 _G.HighPingNotifier_Threshold = 300
+-- GODHAND: Глобальная таблица для истории чата
+_G.ChatHistory = {} -- Будет хранить последние сообщения игроков
 
 pcall(function() getgenv().IY_LOADED = true end)
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -276,9 +278,12 @@ listlayout = Instance.new("UIListLayout",scroll_3)
 selectChat = Instance.new("TextButton")
 selectJoin = Instance.new("TextButton")
 -- GODHAND: GUI для новых модулей
--- Окно управления Quickbinds
+-- (Этот блок пока не используется, но создает заготовки для будущего)
 QuickbindsFrame = Instance.new("Frame")
-QuickbindsSettingsButton = nil -- Будет создано позже
+PlayerDBFrame = Instance.new("Frame")
+ServerFinderFrame = Instance.new("Frame")
+NetTrackerFrame = Instance.new("Frame")
+ArtifactVaultFrame = Instance.new("Frame")
 local QuickbindsList = Instance.new("ScrollingFrame")
 local QuickbindsEditor = Instance.new("Frame")
 local qbEditorTitle = Instance.new("TextLabel")
@@ -6929,10 +6934,6 @@ addcmd('notifyjobid',{},function(args, speaker)
 	notify('JobId / PlaceId',JobId..' / '..PlaceId)
 end)
 
-addcmd('breakloops',{'break'},function(args, speaker)
-	lastBreakTime = tick()
-end)
-
 addcmd('gametp',{'gameteleport'},function(args, speaker)
 	TeleportService:Teleport(args[1])
 end)
@@ -13081,16 +13082,21 @@ CaptureService.CaptureEnded:Connect(function()
 end)
 
 task.spawn(function()
+	-- GODHAND: Проверка обновлений из репозитория den22den22
 	local success, latestVersionInfo = pcall(function() 
+		-- ИЗМЕНЕНО: Ссылка на ВАШ репозиторий
 		local versionJson = game:HttpGet("https://raw.githubusercontent.com/den22den22/godhand/main/version")
 		return HttpService:JSONDecode(versionJson)
 	end)
 
 	if success then
-		if currentVersion ~= latestVersionInfo.Version then
-			notify("Outdated", "Get the new version at infyiff.github.io")
+		-- ИЗМЕНЕНО: Сравниваем с VersionInfo.Number
+		if VersionInfo.Number ~= latestVersionInfo.Version then
+			-- ИЗМЕНЕНО: Текст уведомления
+			notify("Outdated", "A new version of GODHAND is available at github.com/den22den22/godhand")
 		end
 
+		-- Эта часть теперь будет показывать ваше объявление из вашего version файла!
 		if latestVersionInfo.Announcement and latestVersionInfo.Announcement ~= "" then
 			local AnnGUI = Instance.new("Frame")
 			local background = Instance.new("Frame")
@@ -13542,6 +13548,124 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
 			end
 		end)
 	end)
+end)
+
+-- ##################################################################
+-- #          GODHAND - Модуль: Менеджер Процессов (ps/pkill)       #
+-- #                (АВТОНОМНАЯ ВЕРСИЯ БЕЗ МОДИФИКАЦИЙ)              #
+-- ##################################################################
+
+local ProcessManager = {
+    ActiveProcesses = {},
+    NextPID = 1
+}
+
+function ProcessManager:CreateProcess(command, interval)
+    local pid = self.NextPID
+    self.NextPID = self.NextPID + 1
+
+    local processData = {
+        ID = pid,
+        Command = command,
+        Interval = interval,
+        Thread = nil 
+    }
+    
+    self.ActiveProcesses[pid] = processData
+
+    local processThread = task.spawn(function()
+        while true do
+            if not self.ActiveProcesses[pid] then break end 
+            execCmd(command, Players.LocalPlayer, false)
+            task.wait(interval)
+        end
+    end)
+    
+    self.ActiveProcesses[pid].Thread = processThread
+    
+    return pid
+end
+
+function ProcessManager:KillProcess(pid)
+    local process = self.ActiveProcesses[pid]
+    if process and process.Thread then
+        task.cancel(process.Thread)
+        self.ActiveProcesses[pid] = nil
+        return true
+    end
+    return false
+end
+
+function ProcessManager:ListProcesses()
+    local list = {}
+    for pid, data in pairs(self.ActiveProcesses) do
+        table.insert(list, string.format("PID: %d | Interval: %.2fs | Command: %s", data.ID, data.Interval, data.Command))
+    end
+    return list
+end
+
+function ProcessManager:KillAll()
+    local count = 0
+    local pidsToKill = {}
+    for pid in pairs(self.ActiveProcesses) do
+        table.insert(pidsToKill, pid)
+    end
+    
+    for _, pid in ipairs(pidsToKill) do
+        if self:KillProcess(pid) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+-- Команда cmdspam
+addcmd('cmdspam', {'repeatcmd'}, function(args, speaker)
+    if #args < 2 then
+        return notify("Command Spammer", "Usage: cmdspam [interval] [command...]")
+    end
+    
+    local interval = tonumber(args[1])
+    if not interval or interval < 0.05 then
+        return notify("Command Spammer", "Invalid interval. Must be a number >= 0.05.")
+    end
+    
+    table.remove(args, 1)
+    local commandToSpam = table.concat(args, " ")
+    
+    local pid = ProcessManager:CreateProcess(commandToSpam, interval)
+    notify("Process Manager", "Process created with PID: " .. pid .. "\nCommand: '" .. commandToSpam .. "'")
+end)
+
+-- Команда `ps`
+addcmd('ps', {'processes'}, function(args, speaker)
+    local processList = ProcessManager:ListProcesses()
+    if #processList > 0 then
+        notify("Active Processes", table.concat(processList, "\n"))
+    else
+        notify("Active Processes", "No active processes running.")
+    end
+end)
+
+-- Команда `pkill`
+addcmd('pkill', {'prockill'}, function(args, speaker)
+    local pid = tonumber(args[1])
+    if not pid then
+        return notify("Process Manager", "Usage: pkill [PID]")
+    end
+
+    if ProcessManager:KillProcess(pid) then
+        notify("Process Manager", "Successfully killed process with PID: " .. pid)
+    else
+        notify("Process Manager", "Process with PID " .. pid .. " not found.")
+    end
+end)
+
+-- Новая команда для остановки ВСЕХ циклов (включая старые)
+addcmd('stopcmdspam', {'stopspam', 'breakloops', 'break', 'pkillall'}, function(args, speaker)
+    local killedCount = ProcessManager:KillAll()
+    lastBreakTime = tick() -- Эта строка остановит старые циклы inf^
+    notify("Process Manager", "Stopped all new and old command loops. Killed " .. killedCount .. " active process(es).")
 end)
 
 -- Остальные новые команды...
