@@ -3,6 +3,9 @@ if IY_LOADED and not _G.IY_DEBUG == true then
     return
 end
 
+-- GODHAND: NETSTAT SERVICE 
+local Stats = game:GetService("Stats")
+
 -- УБЕРИТЕ старые переменные ESPenabled и CHMSenabled, если они там есть.
 -- ДОБАВЬТЕ ЭТИ:
 local ESP_SelectorString = nil -- Будет хранить правило для ESP, например "friends"
@@ -5857,7 +5860,8 @@ function ESP(plr, logic)
 					if COREGUI:FindFirstChild(plr.Name..'_ESP') then
 						if plr.Character and getRoot(plr.Character) and plr.Character:FindFirstChildOfClass("Humanoid") and Players.LocalPlayer.Character and getRoot(Players.LocalPlayer.Character) and Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
 							local pos = math.floor((getRoot(Players.LocalPlayer.Character).Position - getRoot(plr.Character).Position).magnitude)
-							TextLabel.Text = 'Name: '..plr.Name..' | Health: '..round(plr.Character:FindFirstChildOfClass('Humanoid').Health, 1)..' | Studs: '..pos
+							local ping = math.round(plr:GetNetworkPing() * 1000)
+                            TextLabel.Text = 'Name: '..plr.Name..' | Ping: '..ping..'ms\nHealth: '..round(plr.Character:FindFirstChildOfClass('Humanoid').Health, 1)..' | Studs: '..pos
 						end
 					else
 						teamChange:Disconnect()
@@ -13460,155 +13464,162 @@ end
 -- ##################################################################
 
 local isProfileWindowOpen = false
+local limitedCache = {}
 addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
-	if isProfileWindowOpen then return end
-	
-	local targetName = getPlayer(args[1] or "me", speaker)[1]
-	if not targetName then return notify("Profile", "Player not found.") end
-	local targetPlayer = Players[targetName]
-	if not targetPlayer then return notify("Profile", "Player object not found.") end
-	
-	isProfileWindowOpen = true
+    local targetName = getPlayer(args[1], speaker)[1]
+    if not targetName then return end
+    local targetPlayer = Players[targetName]
 
-	task.spawn(function()
-		local FRAME = Instance.new("Frame")
-		local shadow = Instance.new("Frame")
-		local PopupText = Instance.new("TextLabel")
-		local Exit = Instance.new("TextButton")
-		local ExitImage = Instance.new("ImageLabel")
-		local background = Instance.new("Frame")
-		-- Определяем все наши TextLabel сразу, как в serverinfo
-		local usernameLine = Instance.new("TextLabel")
-		local displaynameLine = Instance.new("TextLabel")
-		local useridLine = Instance.new("TextLabel")
-		local ageLine = Instance.new("TextLabel")
-		local joinDateLine = Instance.new("TextLabel")
-		local teamLine = Instance.new("TextLabel")
-		local friendLine = Instance.new("TextLabel")
-		-- Определяем все наши TextButton сразу
-		local gotoButton = Instance.new("TextButton")
-		local spectateButton = Instance.new("TextButton")
-		local freezeButton = Instance.new("TextButton")
-		local copyIdButton = Instance.new("TextButton")
-		
-		FRAME.Name = randomString() .. "_Profile"
-		FRAME.Parent = ScaledHolder
-		FRAME.Active = true
-		FRAME.BackgroundTransparency = 1
-		FRAME.Position = UDim2.new(0.5, -150, 0, -500)
-		FRAME.Size = UDim2.new(0, 300, 0, 20)
-		FRAME.ZIndex = 11
-		dragGUI(FRAME)
+    local FRAME = Instance.new("Frame")
+    local shadow = Instance.new("Frame")
+    local PopupText = Instance.new("TextLabel")
+    local Exit = Instance.new("TextButton")
+    local ExitImage = Instance.new("ImageLabel")
+    local background = Instance.new("Frame")
+    local PlayerImage = Instance.new("ImageLabel")
+    local playerNameLine = Instance.new("TextLabel")
+    local userIdLine = Instance.new("TextLabel")
+    local accountAgeLine = Instance.new("TextLabel")
+    local joinDateLine = Instance.new("TextLabel")
+    local friendLine = Instance.new("TextLabel")
+    local limitedLine = Instance.new("TextLabel")
 
-		shadow.Name = "shadow"
-		shadow.Parent = FRAME
-		shadow.BackgroundColor3 = currentShade2
-		shadow.BorderSizePixel = 0
-		shadow.Size = UDim2.new(1, 0, 0, 20)
-		shadow.ZIndex = 11
-		table.insert(shade2, shadow)
+    FRAME.Name = randomString()
+    FRAME.Parent = ScaledHolder
+    FRAME.Active = true
+    FRAME.BackgroundTransparency = 1
+    FRAME.Position = UDim2.new(0.5, -150, 0, -500)
+    FRAME.Size = UDim2.new(0, 300, 0, 20)
+    FRAME.ZIndex = 12
+    dragGUI(FRAME)
 
-		PopupText.Name = "PopupText"
-		PopupText.Parent = shadow
-		PopupText.BackgroundTransparency = 1
-		PopupText.Size = UDim2.new(1, 0, 0.95, 0)
-		PopupText.ZIndex = 11
-		PopupText.Font = Enum.Font.SourceSans
-		PopupText.TextSize = 14
-		PopupText.Text = "Player Profile: " .. targetPlayer.Name
-		PopupText.TextColor3 = currentText1
-		PopupText.TextWrapped = true
-		table.insert(text1, PopupText)
+    shadow.Name = "shadow"
+    shadow.Parent = FRAME
+    shadow.BackgroundColor3 = currentShade2
+    shadow.BorderSizePixel = 0
+    shadow.Size = UDim2.new(1, 0, 0, 20)
+    shadow.ZIndex = 12
+    table.insert(shade2, shadow)
 
-		Exit.Name = "Exit"
-		Exit.Parent = shadow
-		Exit.BackgroundTransparency = 1
-		Exit.Position = UDim2.new(1, -20, 0, 0)
-		Exit.Size = UDim2.new(0, 20, 0, 20)
-		Exit.Text = ""
-		Exit.ZIndex = 11
+    PopupText.Name = "PopupText"
+    PopupText.Parent = shadow
+    PopupText.BackgroundTransparency = 1
+    PopupText.Size = UDim2.new(1, 0, 0.95, 0)
+    PopupText.ZIndex = 12
+    PopupText.Font = Enum.Font.SourceSans
+    PopupText.TextSize = 14
+    PopupText.Text = "Player Information"
+    PopupText.TextColor3 = currentText1
+    PopupText.TextWrapped = true
+    table.insert(text1, PopupText)
 
-		ExitImage.Parent = Exit
-		ExitImage.BackgroundColor3 = Color3.new(1, 1, 1)
-		ExitImage.BackgroundTransparency = 1
-		ExitImage.Position = UDim2.new(0, 5, 0, 5)
-		ExitImage.Size = UDim2.new(0, 10, 0, 10)
-		ExitImage.Image = getcustomasset("godhand/assets/close.png")
-		ExitImage.ZIndex = 11
+    Exit.Name = "Exit"
+    Exit.Parent = shadow
+    Exit.BackgroundTransparency = 1
+    Exit.Position = UDim2.new(1, -20, 0, 0)
+    Exit.Size = UDim2.new(0, 20, 0, 20)
+    Exit.Text = ""
+    Exit.ZIndex = 12
 
-		background.Name = "background"
-		background.Parent = FRAME
-		background.Active = true
-		background.BackgroundColor3 = currentShade1
-		background.BorderSizePixel = 0
-		background.Position = UDim2.new(0, 0, 1, 0)
-		background.Size = UDim2.new(0, 300, 0, 220)
-		background.ZIndex = 11
-		table.insert(shade1, background)
+    ExitImage.Parent = Exit
+    ExitImage.BackgroundColor3 = Color3.new(1, 1, 1)
+    ExitImage.BackgroundTransparency = 1
+    ExitImage.Position = UDim2.new(0, 5, 0, 5)
+    ExitImage.Size = UDim2.new(0, 10, 0, 10)
+    ExitImage.Image = getcustomasset("godhand/assets/close.png")
+    ExitImage.ZIndex = 12
 
-		local yOffset = 5
-		local function setLineProperties(line, text)
-			line.BackgroundTransparency = 1; line.BorderSizePixel = 0
-			line.Position = UDim2.new(0, 5, 0, yOffset)
-			line.Size = UDim2.new(1, -10, 0, 18)
-			line.ZIndex = 11; line.Font = Enum.Font.SourceSans
-			line.TextSize = 16; line.Text = text; line.TextColor3 = currentText1
-			line.TextXAlignment = Enum.TextXAlignment.Left; line.RichText = true
-			table.insert(text1, line)
-			yOffset = yOffset + 20
-		end
+    background.Name = "background"
+    background.Parent = FRAME
+    background.Active = true
+    background.BackgroundColor3 = currentShade1
+    background.BorderSizePixel = 0
+    background.Position = UDim2.new(0, 0, 1, 0)
+    background.Size = UDim2.new(0, 300, 0, 205) -- Increased height for all content
+    background.ZIndex = 12
+    table.insert(shade1, background)
 
-		-- Заполнение информацией
-		usernameLine.Parent = background; setLineProperties(usernameLine, "<b>Username:</b> " .. tostring(targetPlayer.Name))
-		displaynameLine.Parent = background; setLineProperties(displaynameLine, "<b>Display Name:</b> " .. tostring(targetPlayer.DisplayName))
-		useridLine.Parent = background; setLineProperties(useridLine, "<b>User ID:</b> " .. tostring(targetPlayer.UserId))
-		ageLine.Parent = background; setLineProperties(ageLine, "<b>Account Age:</b> " .. tostring(targetPlayer.AccountAge) .. " days")
-		joinDateLine.Parent = background; setLineProperties(joinDateLine, "<b>Join Date:</b> Loading...")
-		teamLine.Parent = background; setLineProperties(teamLine, "<b>Team:</b> " .. (targetPlayer.Team and targetPlayer.Team.Name or "None"))
-		friendLine.Parent = background; setLineProperties(friendLine, "<b>Is Friend:</b> " .. (speaker:IsFriendsWith(targetPlayer.UserId) and "Yes" or "No"))
-		
-		-- Кнопки действий
-		local buttonXOffset = 5
-		local function setButtonProperties(button, text, callback)
-			button.BackgroundColor3 = currentShade2; button.BorderSizePixel = 0
-			button.Position = UDim2.new(0, buttonXOffset, 0, 185)
-			button.Size = UDim2.new(0, 65, 0, 25); button.Font = Enum.Font.SourceSans
-			button.TextSize = 14; button.Text = text; button.TextColor3 = currentText1
-			button.ZIndex = 11; button.MouseButton1Click:Connect(callback)
-			table.insert(shade2, button); table.insert(text1, button)
-			buttonXOffset = buttonXOffset + 70
-		end
+    PlayerImage.Name = "PlayerImage"
+    PlayerImage.Parent = background
+    PlayerImage.BackgroundColor3 = currentShade1
+    PlayerImage.Position = UDim2.new(0.5, -30, 0, 10) -- Centered smaller image
+    PlayerImage.Size = UDim2.new(0, 60, 0, 60) -- Made image smaller
+    PlayerImage.ZIndex = 12
+    local success, err = pcall(function() PlayerImage.Image = "https://www.roblox.com/headshot-thumbnail/image?userId="..targetPlayer.UserId.."&width=420&height=420&format=png" end)
 
-		gotoButton.Parent = background; setButtonProperties(gotoButton, "Goto", function() execCmd("goto " .. targetPlayer.Name) end)
-		spectateButton.Parent = background; setButtonProperties(spectateButton, "Spectate", function() execCmd("view " .. targetPlayer.Name) end)
-		freezeButton.Parent = background; setButtonProperties(freezeButton, "Freeze", function() execCmd("freeze " .. targetPlayer.Name) end)
-		copyIdButton.Parent = background; setButtonProperties(copyIdButton, "Copy ID", function() toClipboard(targetPlayer.UserId); notify("Profile", "UserID copied!") end)
-		
-		FRAME:TweenPosition(UDim2.new(0.5, -150, 0, 50), "InOut", "Quart", 0.5, true)
-		
-		Exit.MouseButton1Click:Connect(function()
-			FRAME:TweenPosition(UDim2.new(0.5, -150, 0, -500), "InOut", "Quart", 0.3, true)
-			task.wait(0.3)
-			FRAME:Destroy()
-			isProfileWindowOpen = false
-		end)
-		
-		-- Асинхронная загрузка, как в serverinfo
-		task.spawn(function()
-			local success, result = pcall(function()
-				local user = game:HttpGet("https://users.roblox.com/v1/users/"..targetPlayer.UserId)
-				local json = HttpService:JSONDecode(user)
-				local date = json["created"]:sub(1,10)
-				local splitDates = string.split(date,"-")
-				return splitDates[2].."/"..splitDates[3].."/"..splitDates[1] -- MM/DD/YYYY
-			end)
-			if success and joinDateLine and joinDateLine.Parent then
-				joinDateLine.Text = "<b>Join Date:</b> " .. result
-			elseif joinDateLine and joinDateLine.Parent then
-				joinDateLine.Text = "<b>Join Date:</b> Error"
-			end
-		end)
-	end)
+    local function setLineProperties(line, text)
+        line.BackgroundTransparency = 1
+        line.BorderSizePixel = 0
+        line.Size = UDim2.new(1, -10, 0, 20)
+        line.ZIndex = 12
+        line.Font = Enum.Font.SourceSans
+        line.TextSize = 16
+        line.Text = text
+        line.TextColor3 = currentText1
+        line.TextXAlignment = Enum.TextXAlignment.Left
+        line.RichText = true
+        table.insert(text1, line)
+    end
+    
+    local lines = {playerNameLine, userIdLine, accountAgeLine, joinDateLine, friendLine, limitedLine}
+    local yPos = 75 -- Adjusted starting Y position for text
+    for _, line in ipairs(lines) do
+        line.Position = UDim2.new(0, 5, 0, yPos)
+        yPos = yPos + 20
+    end
+
+    playerNameLine.Parent = background; setLineProperties(playerNameLine, "<b>Display Name:</b> " .. targetPlayer.DisplayName .. " (@" .. targetPlayer.Name .. ")")
+    userIdLine.Parent = background; setLineProperties(userIdLine, "<b>User ID:</b> " .. targetPlayer.UserId)
+    accountAgeLine.Parent = background; setLineProperties(accountAgeLine, "<b>Account Age:</b> " .. targetPlayer.AccountAge)
+    joinDateLine.Parent = background; setLineProperties(joinDateLine, "<b>Join Date:</b> Fetching...")
+    friendLine.Parent = background; setLineProperties(friendLine, "<b>Is Friend:</b> " .. (speaker:IsFriendsWith(targetPlayer.UserId) and "Yes" or "No"))
+    limitedLine.Parent = background; setLineProperties(limitedLine, "<b>Top Limited:</b> Fetching...")
+
+    FRAME:TweenPosition(UDim2.new(0.5, -150, 0, 80), "InOut", "Quart", 0.5, true)
+    
+    -- Corrected Join Date fetching
+    task.spawn(function()
+        local success, result = pcall(function()
+            local info = HttpService:JSONDecode(game:HttpGet("https://users.roblox.com/v1/users/"..targetPlayer.UserId))
+            return string.sub(info.created, 1, 10) -- Correctly parse the date string
+        end)
+        if success and joinDateLine and joinDateLine.Parent then
+            joinDateLine.Text = "<b>Join Date:</b> " .. result
+        elseif joinDateLine and joinDateLine.Parent then
+            joinDateLine.Text = "<b>Join Date:</b> API Error"
+        end
+    end)
+    
+    -- Limited fetching (remains the same, but wrapped in task.spawn for safety)
+    task.spawn(function()
+        local userId = targetPlayer.UserId
+        if limitedCache[userId] then
+            limitedLine.Text = limitedCache[userId]
+        else
+            local success, inventoryData = pcall(function()
+                local invApiUrl = "https://inventory.roblox.com/v1/users/" .. userId .. "/assets/collectibles?sortOrder=Desc&limit=10"
+                return HttpService:JSONDecode(game:HttpGet(invApiUrl))
+            end)
+            
+            if success and inventoryData and #inventoryData.data > 0 then
+                local topItem = inventoryData.data[1]
+                local rap = topItem.recentAveragePrice or "N/A"
+                limitedLine.Text = string.format("<b>Top Limited:</b> %s (R$ %s)", topItem.name, tostring(rap))
+                limitedCache[userId] = limitedLine.Text
+            elseif success then
+                limitedLine.Text = "<b>Top Limited:</b> None"
+                limitedCache[userId] = limitedLine.Text
+            else
+                limitedLine.Text = "<b>Top Limited:</b> API Error"
+            end
+        end
+    end)
+
+    Exit.MouseButton1Click:Connect(function()
+        FRAME:TweenPosition(UDim2.new(0.5, -150, 0, -500), "InOut", "Quart", 0.3, true)
+        task.wait(0.3)
+        FRAME:Destroy()
+    end)
 end)
 
 -- ##################################################################
@@ -13729,9 +13740,174 @@ addcmd('stopcmdspam', {'stopspam', 'breakloops', 'break', 'pkillall'}, function(
     notify("Process Manager", "Stopped all new and old command loops. Killed " .. killedCount .. " active process(es).")
 end)
 
+-- GODHAND: Модуль Mimic
+local isMimicking = false
+local mimicConnection = nil
+addcmd('mimic', {'copychar'}, function(args, speaker)
+    execCmd("unmimic nonotify")
+    
+    local targetName = getPlayer(args[1], speaker)[1]
+    if not targetName then return notify("Mimic", "Player not found.") end
+    local targetPlayer = Players[targetName]
+    
+    if not targetPlayer or not targetPlayer.Character or not speaker.Character then
+        return notify("Mimic", "Target or your character not found.")
+    end
+    
+    isMimicking = true
+    notify("Mimic", "Now mimicking " .. targetPlayer.Name)
+    
+    local myRoot = getRoot(speaker.Character)
+    local myHumanoid = speaker.Character:FindFirstChildOfClass("Humanoid")
+    
+    mimicConnection = RunService.RenderStepped:Connect(function()
+        if not isMimicking or not targetPlayer or not targetPlayer.Character or not speaker.Character then
+            execCmd("unmimic")
+            return
+        end
+        
+        local targetRoot = getRoot(targetPlayer.Character)
+        if myRoot and targetRoot then
+            local newCFrame = targetRoot.CFrame + Vector3.new(2, 0, 2)
+            myRoot.CFrame = CFrame.new(newCFrame.Position, targetRoot.Position)
+            
+            local targetAnims = targetPlayer.Character:FindFirstChildOfClass("Humanoid"):GetPlayingAnimationTracks()
+            for _, myAnim in ipairs(myHumanoid:GetPlayingAnimationTracks()) do
+                myAnim:Stop()
+            end
+            
+            for _, track in ipairs(targetAnims) do
+                local myTrack = myHumanoid:LoadAnimation(track.Animation)
+                myTrack:Play(0.1, 1, track.Speed)
+                myTrack.TimePosition = track.TimePosition
+            end
+        end
+    end)
+end)
+
+addcmd('unmimic', {'stopmimic'}, function(args, speaker)
+    if not isMimicking then return end
+    
+    isMimicking = false
+    if mimicConnection then
+        mimicConnection:Disconnect()
+        mimicConnection = nil
+    end
+    
+    if not (args[1] and args[1] == "nonotify") then
+        notify("Mimic", "Stopped mimicking.")
+    end
+end)
+
+-- GODHAND: Модуль Netstat
+local isNetstatOpen = false
+addcmd('netstat', {'net'}, function(args, speaker)
+    if isNetstatOpen then return end
+    isNetstatOpen = true
+
+    local FRAME = Instance.new("Frame")
+    local shadow = Instance.new("Frame")
+    local PopupText = Instance.new("TextLabel")
+    local Exit = Instance.new("TextButton")
+    local ExitImage = Instance.new("ImageLabel")
+    local background = Instance.new("Frame")
+    local pingLine = Instance.new("TextLabel")
+    local dataInLine = Instance.new("TextLabel")
+    local dataOutLine = Instance.new("TextLabel")
+
+    FRAME.Name = randomString() .. "_Netstat"
+    FRAME.Parent = ScaledHolder
+    FRAME.Active = true
+    FRAME.BackgroundTransparency = 1
+    FRAME.Position = UDim2.new(0.5, -125, 0, -500)
+    FRAME.Size = UDim2.new(0, 250, 0, 20)
+    FRAME.ZIndex = 12
+    dragGUI(FRAME)
+
+    shadow.Name = "shadow"
+    shadow.Parent = FRAME
+    shadow.BackgroundColor3 = currentShade2
+    shadow.BorderSizePixel = 0
+    shadow.Size = UDim2.new(1, 0, 0, 20)
+    shadow.ZIndex = 12
+    table.insert(shade2, shadow)
+
+    PopupText.Name = "PopupText"
+    PopupText.Parent = shadow
+    PopupText.BackgroundTransparency = 1
+    PopupText.Size = UDim2.new(1, 0, 0.95, 0)
+    PopupText.ZIndex = 12
+    PopupText.Font = Enum.Font.SourceSans
+    PopupText.TextSize = 14
+    PopupText.Text = "Network Stats"
+    PopupText.TextColor3 = currentText1
+    PopupText.TextWrapped = true
+    table.insert(text1, PopupText)
+
+    Exit.Name = "Exit"
+    Exit.Parent = shadow
+    Exit.BackgroundTransparency = 1
+    Exit.Position = UDim2.new(1, -20, 0, 0)
+    Exit.Size = UDim2.new(0, 20, 0, 20)
+    Exit.Text = ""
+    Exit.ZIndex = 12
+
+    ExitImage.Parent = Exit
+    ExitImage.BackgroundColor3 = Color3.new(1, 1, 1)
+    ExitImage.BackgroundTransparency = 1
+    ExitImage.Position = UDim2.new(0, 5, 0, 5)
+    ExitImage.Size = UDim2.new(0, 10, 0, 10)
+    ExitImage.Image = getcustomasset("godhand/assets/close.png")
+    ExitImage.ZIndex = 12
+
+    background.Name = "background"
+    background.Parent = FRAME
+    background.Active = true
+    background.BackgroundColor3 = currentShade1
+    background.BorderSizePixel = 0
+    background.Position = UDim2.new(0, 0, 1, 0)
+    background.Size = UDim2.new(0, 250, 0, 85) -- Adjusted height
+    background.ZIndex = 12
+    table.insert(shade1, background)
+
+    local function setLineProperties(line, text)
+        line.Parent = background
+        line.BackgroundTransparency = 1; line.BorderSizePixel = 0
+        line.Size = UDim2.new(1, -10, 0, 20)
+        line.ZIndex = 12; line.Font = Enum.Font.SourceSans
+        line.TextSize = 16; line.Text = text; line.TextColor3 = currentText1
+        line.TextXAlignment = Enum.TextXAlignment.Left; line.RichText = true
+        table.insert(text1, line)
+    end
+
+    pingLine.Position = UDim2.new(0, 5, 0, 5); setLineProperties(pingLine, "<b>Ping:</b> ...")
+    dataInLine.Position = UDim2.new(0, 5, 0, 30); setLineProperties(dataInLine, "<b>In:</b> ... KB/s")
+    dataOutLine.Position = UDim2.new(0, 5, 0, 55); setLineProperties(dataOutLine, "<b>Out:</b> ... KB/s")
+
+    FRAME:TweenPosition(UDim2.new(0.5, -125, 0, 80), "InOut", "Quart", 0.5, true)
+
+    local updateThread
+    updateThread = task.spawn(function()
+        while FRAME and FRAME.Parent do
+            local ping = speaker:GetNetworkPing() * 1000
+            
+            pingLine.Text = string.format("<b>Ping:</b> %d ms", math.round(ping))
+            dataInLine.Text = string.format("<b>In:</b> %.2f KB/s", Stats.DataReceiveKbps)
+            dataOutLine.Text = string.format("<b>Out:</b> %.2f KB/s", Stats.DataSendKbps)
+            task.wait(1)
+        end
+    end)
+    
+    Exit.MouseButton1Click:Connect(function()
+        task.cancel(updateThread)
+        FRAME:TweenPosition(UDim2.new(0.5, -125, 0, -500), "InOut", "Quart", 0.3, true)
+        task.wait(0.3)
+        FRAME:Destroy()
+        isNetstatOpen = false
+    end)
+end)
+
 -- Остальные новые команды...
-addcmd('mimic', {}, function() notify("GODHAND", "Mimic function is not yet implemented.") end)
-addcmd('nettracker', {}, function() notify("GODHAND", "Nettracker function is not yet implemented.") end)
 addcmd('vault', {}, function() notify("GODHAND", "Vault function is not yet implemented.") end)
 addcmd('serverfinder', {}, function() notify("GODHAND", "Server Finder function is not yet implemented.") end)
 
