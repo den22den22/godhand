@@ -13866,7 +13866,7 @@ addcmd('netstat', {'net'}, function(args, speaker)
     background.BackgroundColor3 = currentShade1
     background.BorderSizePixel = 0
     background.Position = UDim2.new(0, 0, 1, 0)
-    background.Size = UDim2.new(0, 250, 0, 85) -- Adjusted height
+    background.Size = UDim2.new(0, 250, 0, 85)
     background.ZIndex = 12
     table.insert(shade1, background)
 
@@ -13907,9 +13907,90 @@ addcmd('netstat', {'net'}, function(args, speaker)
     end)
 end)
 
+addcmd('serverfinder', {'sf'}, function(args, speaker)
+    if #args < 3 then
+        return notify("Server Finder Usage", "sf [players/ping] [operator] [value]")
+    end
+
+    task.spawn(function()
+        -- [+] Используем game:HttpGet, который обходит игровые ограничения
+        local function request(url)
+            local s, r = pcall(function() return game:HttpGet(url) end)
+            if s then return HttpService:JSONDecode(r) end
+            return nil
+        end
+
+        local property = string.lower(args[1])
+        local operator = args[2]
+        local value = tonumber(args[3])
+
+        if not value then return notify("Server Finder Error", "Invalid value provided.") end
+
+        notify("Server Finder", "Searching (max 5 pages)...")
+
+        local allServers, nextPageCursor = {}, nil
+        local pageCount = 0
+        local pageLimit = 5 -- [+] Ограничение на 5 страниц
+
+        repeat
+            pageCount = pageCount + 1
+            -- [+] Изменена сортировка на Desc (сначала полные серверы)
+            local url = ("https://games.roblox.com/v1/games/%d/servers/Public?limit=100&sortOrder=Desc%s"):format(
+                game.PlaceId, nextPageCursor and "&cursor=" .. nextPageCursor or "")
+            
+            local data = request(url)
+            
+            if data and data.data then
+                for _, server in ipairs(data.data) do table.insert(allServers, server) end
+                nextPageCursor = data.nextPageCursor
+            else
+                return notify("Server Finder Error", "Failed to fetch/decode server list. API might be down.")
+            end
+            task.wait()
+        until not nextPageCursor or pageCount >= pageLimit -- [+] Выходим из цикла по лимиту
+
+        local matchingServers = {}
+        for _, server in ipairs(allServers) do
+            if server.id ~= game.JobId then
+                local serverValue
+                if property == "players" or property == "playing" then serverValue = server.playing
+                elseif property == "ping" then serverValue = server.ping
+                elseif property == "maxplayers" then serverValue = server.maxPlayers end
+
+                if serverValue then
+                    local conditionMet = false
+                    if operator == "=" or operator == "==" then conditionMet = (serverValue == value)
+                    elseif operator == ">" then conditionMet = (serverValue > value)
+                    elseif operator == "<" then conditionMet = (serverValue < value)
+                    elseif operator == ">=" then conditionMet = (serverValue >= value)
+                    elseif operator == "<=" then conditionMet = (serverValue <= value)
+                    elseif operator == "~=" or operator == "!=" then conditionMet = (serverValue ~= value) end
+
+                    if conditionMet then
+                        table.insert(matchingServers, server)
+                    end
+                end
+            end
+        end
+
+        if #matchingServers == 0 then
+            return notify("Server Finder", "No servers found within the first " .. pageLimit*100 .. " results.")
+        end
+
+        -- Сортируем для выбора лучшего из найденных
+        table.sort(matchingServers, function(a, b)
+            if property == "ping" then return a.ping < b.ping end -- Ищем лучший (низкий) пинг
+            return a.playing > b.playing -- Ищем самый полный сервер
+        end)
+
+        local bestServer = matchingServers[1]
+        notify("Server Finder", string.format("Found best match! Players: %d, Ping: %dms. Teleporting...", bestServer.playing, bestServer.ping))
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, bestServer.id, speaker)
+    end)
+end)
+
 -- Остальные новые команды...
 addcmd('vault', {}, function() notify("GODHAND", "Vault function is not yet implemented.") end)
-addcmd('serverfinder', {}, function() notify("GODHAND", "Server Finder function is not yet implemented.") end)
 
 -- GODHAND: Запуск фоновых систем
 task.spawn(function()
