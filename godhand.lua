@@ -6,8 +6,6 @@ end
 -- GODHAND: NETSTAT SERVICE 
 local Stats = game:GetService("Stats")
 
--- УБЕРИТЕ старые переменные ESPenabled и CHMSenabled, если они там есть.
--- ДОБАВЬТЕ ЭТИ:
 local ESP_SelectorString = nil -- Будет хранить правило для ESP, например "friends"
 local CHAMS_SelectorString = nil -- Будет хранить правило для Chams
 
@@ -5860,8 +5858,8 @@ function ESP(plr, logic)
 					if COREGUI:FindFirstChild(plr.Name..'_ESP') then
 						if plr.Character and getRoot(plr.Character) and plr.Character:FindFirstChildOfClass("Humanoid") and Players.LocalPlayer.Character and getRoot(Players.LocalPlayer.Character) and Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
 							local pos = math.floor((getRoot(Players.LocalPlayer.Character).Position - getRoot(plr.Character).Position).magnitude)
-							local ping = math.round(plr:GetNetworkPing() * 1000)
-                            TextLabel.Text = 'Name: '..plr.Name..' | Ping: '..ping..'ms\nHealth: '..round(plr.Character:FindFirstChildOfClass('Humanoid').Health, 1)..' | Studs: '..pos
+							-- [ИСПРАВЛЕНО] Убрано отображение пинга, так как оно не работает для других игроков.
+							TextLabel.Text = 'Name: '..plr.Name..'\nHealth: '..round(plr.Character:FindFirstChildOfClass('Humanoid').Health, 1)..' | Studs: '..pos
 						end
 					else
 						teamChange:Disconnect()
@@ -7973,84 +7971,123 @@ addcmd('volume',{'vol'},function(args, speaker)
 	UserSettings():GetService("UserGameSettings").MasterVolume = level
 end)
 
-addcmd('antilag',{'lag', 'fpsboost'},function(args, speaker)
-    local stage = tonumber(args[1])
-    if stage == nil then 
-        antilagStage = (antilagStage == 2 and 0 or 2)
-    else
-        antilagStage = math.clamp(stage, 0, 3)
+-- ##################################################################
+-- #          [+] GODHAND: ИСПРАВЛЕННЫЙ И НАДЕЖНЫЙ ANTILAG          #
+-- ##################################################################
+
+local antilagStage = 0 -- Отслеживает текущий уровень antilag
+local antilagOriginalLighting = nil -- Хранит только оригинальные настройки освещения
+
+-- Функция для восстановления графики. Простая и надежная.
+local function unantilag()
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic -- Возвращаем авто-качество
+
+    -- Восстанавливаем освещение, если оно было сохранено
+    if antilagOriginalLighting then
+        for property, value in pairs(antilagOriginalLighting) do
+            pcall(function() Lighting[property] = value end)
+        end
+        antilagOriginalLighting = nil -- Очищаем сохраненные данные
     end
 
-    -- Сначала сбрасываем все до оригинала
-    if originalLightingSettings then
-        for k, v in pairs(originalLightingSettings) do Lighting[k] = v end
-        settings().Rendering.QualityLevel = 3
+    -- Возвращаем материалы к стандартному SmoothPlastic, как в оригинальном IY
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") and not v.Parent:FindFirstChildWhichIsA("Humanoid") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Lifetime = NumberRange.new(5) -- Возвращаем частицам жизнь
+        end
+    end
+    
+    local Terrain = workspace:FindFirstChildOfClass('Terrain')
+    if Terrain then
+        Terrain.WaterWaveSize = 0.15
+        Terrain.WaterWaveSpeed = 10
+        Terrain.WaterReflectance = 0.2
+        Terrain.WaterTransparency = 0.5
+    end
+    
+    notify("Antilag", "Отключен. Графика восстановлена до стандартных значений.")
+end
+
+
+addcmd('antilag', {'lag', 'fpsboost', 'lowgraphics'}, function(args, speaker)
+    local stage = tonumber(args[1])
+    if stage == nil then 
+        antilagStage = (antilagStage >= 4 and 0 or antilagStage + 1) -- Цикличное переключение 0->1->2->3->4->0
     else
-        originalLightingSettings = {
-            GlobalShadows = Lighting.GlobalShadows,
-            FogEnd = Lighting.FogEnd,
-            FogStart = Lighting.FogStart,
+        antilagStage = math.clamp(stage, 0, 4)
+    end
+    
+    -- Сохраняем оригинальные настройки освещения только один раз
+    if antilagStage > 0 and not antilagOriginalLighting then
+        antilagOriginalLighting = {
+            Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient, 
+            Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, 
+            FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart, 
+            GlobalShadows = Lighting.GlobalShadows
         }
     end
 
+    -- СБРОС НАСТРОЕК (antilag 0)
     if antilagStage == 0 then
-         notify("Antilag", "Disabled")
-         return
+        unantilag()
+        -- Применяем X-ray поверх восстановленных настроек, если он включен
+        if xrayEnabled then applyXrayEffect(true) end 
+        return
     end
 
-    -- Применяем настройки в зависимости от стадии
-    settings().Rendering.QualityLevel = 1
+    -- ПРИМЕНЕНИЕ НАСТРОЕК ANTILAG
+    -- STAGE 1 (Базовый)
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Level1
     Lighting.GlobalShadows = false
     Lighting.FogEnd = 9e9
+    Lighting.FogStart = 0
     
+    -- STAGE 2 (Убираем текстуры и эффекты)
     if antilagStage >= 2 then
         local Terrain = workspace:FindFirstChildOfClass('Terrain')
-        Terrain.WaterWaveSize = 0
-        Terrain.WaterWaveSpeed = 0
-        Terrain.WaterReflectance = 0
-        for _, v in pairs(game:GetDescendants()) do
-            if v:IsA("BasePart") then v.Material = "Plastic" end
-            if v:IsA("Decal") then v:Destroy() end
+        if Terrain then
+            Terrain.WaterWaveSize = 0
+            Terrain.WaterWaveSpeed = 0
+            Terrain.WaterReflectance = 0
+        end
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v:IsA("BasePart") and not v.Parent:FindFirstChildWhichIsA("Humanoid") then
+                 v.Material = Enum.Material.Plastic -- Меняем материал на простой пластик
+                 v.Reflectance = 0
+            end
+            if v:IsA("Decal") or v:IsA("Texture") then v.Transparency = 1 end -- Делаем невидимыми, а не удаляем
             if v:IsA("ParticleEmitter") or v:IsA("Trail") then v.Lifetime = NumberRange.new(0) end
         end
     end
-
+    
+    -- STAGE 3 (Упрощаем освещение и воду)
     if antilagStage >= 3 then
-         workspace:FindFirstChildOfClass('Terrain').WaterTransparency = 1
+         local Terrain = workspace:FindFirstChildOfClass('Terrain')
+         if Terrain then Terrain.WaterTransparency = 1 end
+         for _, light in ipairs(Lighting:GetChildren()) do
+            if light:IsA("Light") then light.Shadows = false end
+         end
     end
     
-    notify("Antilag", "Set to Stage " .. antilagStage)
-end)
-
-addcmd("setfpscap", {"fpscap", "maxfps"}, function(args, speaker)
-    if fpscaploop then
-        task.cancel(fpscaploop)
-        fpscaploop = nil
+    -- STAGE 4 (Максимальное упрощение)
+    if antilagStage >= 4 then
+        for _, effect in ipairs(Lighting:GetChildren()) do
+            if effect:IsA("PostEffect") then effect.Enabled = false end
+        end
+        for _, effect in ipairs(workspace.CurrentCamera:GetChildren()) do
+            if effect:IsA("PostEffect") then effect.Enabled = false end
+        end
+        if sethidden then
+            sethidden(MaterialService, "Use2022Materials", false)
+        end
     end
-
-    local fpsCap = 60
-    local num = tonumber(args[1]) or 1e6
-    if num == "none" then
-        return
-    elseif num > 0 then
-        fpsCap = num
-    else
-        return notify("Invalid argument", "Please provide a number above 0 or 'none'.")
-    end
-
-    if setfpscap and type(setfpscap) == "function" then
-        setfpscap(fpsCap)
-    else
-        fpscaploop = task.spawn(function()
-            local timer = os.clock()
-            while true do
-                if os.clock() >= timer + 1 / fpsCap then
-                    timer = os.clock()
-                    task.wait()
-                end
-            end
-        end)
-    end
+    
+    notify("Antilag", "Установлен уровень " .. antilagStage)
+    -- Применяем X-ray поверх, если он включен
+    if xrayEnabled then applyXrayEffect(true) end
 end)
 
 addcmd('notify',{},function(args, speaker)
@@ -8063,7 +8100,6 @@ addcmd('lastcommand',{'lastcmd'},function(args, speaker)
 	end
 end)
 
--- ЗАМЕНИТЕ addcmd('esp',...)
 addcmd('esp',{},function(args, speaker)
 	if CHAMS_SelectorString then
 		return notify('ESP','Disable chams (nochams) before using esp')
@@ -12112,42 +12148,56 @@ addcmd('unspin',{},function(args, speaker)
 	end
 end)
 
-xrayEnabled = false
-function xray()
+-- [+] GODHAND: ПЕРЕРАБОТАННЫЙ БЛОК X-RAY ДЛЯ СОВМЕСТИМОСТИ С ANTILAG
+
+local xrayEnabled = false -- Эта переменная будет хранить состояние X-Ray
+
+-- Основная функция, которая применяет или убирает эффект прозрачности
+function applyXrayEffect(state)
+    local transparency = state and 0.7 or 0 -- 0.7 если включен, 0 если выключен
     for _, v in pairs(workspace:GetDescendants()) do
         if v:IsA("BasePart") and not v.Parent:FindFirstChildWhichIsA("Humanoid") and not v.Parent.Parent:FindFirstChildWhichIsA("Humanoid") then
-            v.LocalTransparencyModifier = xrayEnabled and 0.5 or 0
+            v.LocalTransparencyModifier = transparency
         end
     end
 end
 
+-- Команда для включения
 addcmd("xray", {}, function(args, speaker)
+    if xrayEnabled then return end -- Если уже включен, ничего не делаем
     xrayEnabled = true
-    xray()
+    applyXrayEffect(true)
 end)
 
+-- Команда для выключения
 addcmd("unxray", {"noxray"}, function(args, speaker)
+    if not xrayEnabled then return end -- Если уже выключен, ничего не делаем
     xrayEnabled = false
-    xray()
+    applyXrayEffect(false)
 end)
 
+-- Команда для переключения
 addcmd("togglexray", {}, function(args, speaker)
     xrayEnabled = not xrayEnabled
-    xray()
+    applyXrayEffect(xrayEnabled)
 end)
 
+-- Команда для зацикленного включения
 addcmd("loopxray", {}, function(args, speaker)
-    pcall(function() xrayLoop:Disconnect() end)
+    pcall(function() xrayLoop:Disconnect() end) -- Отключаем старый цикл, если он был
+    xrayEnabled = true -- Устанавливаем состояние
     xrayLoop = RunService.RenderStepped:Connect(function()
-        xrayEnabled = true
-        xray()
+        applyXrayEffect(true) -- Постоянно применяем эффект
     end)
 end)
 
+-- Команда для отключения цикла
 addcmd("unloopxray", {}, function(args, speaker)
-    pcall(function() xrayLoop:Disconnect() end)
-    xrayEnabled = false
-    xray()
+    pcall(function() xrayLoop:Disconnect() end) -- Отключаем цикл
+    if xrayEnabled then
+        xrayEnabled = false
+        applyXrayEffect(false) -- Убираем эффект после отключения
+    end
 end)
 
 local walltpTouch = nil
@@ -13301,8 +13351,10 @@ function UpdateQuickbindSave(id, position, size)
     end
 end
 
+-- [+] GODHAND: ЗАМЕНИТЕ СУЩЕСТВУЮЩУЮ ФУНКЦИЮ 'CreateQuickbindButton' НА ЭТУ ВЕРСИЮ
 function CreateQuickbindButton(data)
     local button
+    -- Логика создания Text/Image кнопки остается прежней
     if data.Type == "Image" then
         button = Instance.new("ImageButton")
         button.Image = "rbxassetid://" .. data.Customization.ImageId
@@ -13322,12 +13374,35 @@ function CreateQuickbindButton(data)
     button.Position = UDim2.new(data.Position[1], data.Position[2], data.Position[3], data.Position[4])
     button.ZIndex = 20
     
-    button:SetAttribute("Command", data.Command)
     button:SetAttribute("ID", data.ID)
 
-    button.MouseButton1Click:Connect(function()
-        execCmd(button:GetAttribute("Command"), Players.LocalPlayer, false)
-    end)
+    -- Новая логика для обработки нажатий
+    if data.IsToggle then
+        -- Это кнопка-переключатель
+        button:SetAttribute("ToggleState", false) -- Начальное состояние "выключено"
+        
+        button.MouseButton1Click:Connect(function()
+            local currentState = button:GetAttribute("ToggleState")
+            local commandToExecute
+            
+            if not currentState then -- Была выключена, теперь включаем
+                commandToExecute = data.Command.On
+                button.BackgroundColor3 = Color3.fromRGB(180, 60, 60) -- Цвет активного состояния
+            else -- Была включена, теперь выключаем
+                commandToExecute = data.Command.Off
+                button.BackgroundColor3 = Color3.fromRGB(unpack(data.Customization.BackgroundColor)) -- Возвращаем исходный цвет
+            end
+            
+            execCmd(commandToExecute, Players.LocalPlayer, false)
+            button:SetAttribute("ToggleState", not currentState) -- Инвертируем состояние
+        end)
+    else
+        -- Это обычная кнопка (старая логика)
+        button:SetAttribute("Command", data.Command)
+        button.MouseButton1Click:Connect(function()
+            execCmd(button:GetAttribute("Command"), Players.LocalPlayer, false)
+        end)
+    end
     
     dragGUI(button, function(newPos)
         UpdateQuickbindSave(data.ID, newPos, nil)
@@ -13347,31 +13422,83 @@ function LoadQuickbinds()
     end
 end
 
+-- [+] GODHAND: ЗАМЕНИТЕ СУЩЕСТВУЮЩУЮ КОМАНДУ 'createbutton' НА ЭТУ ВЕРСИЮ
 addcmd('createbutton', {'cb', 'newbutton'}, function(args, speaker)
-    if #args < 2 then return notify("Quickbinds", "Usage: createbutton [name] [command...]") end
+    if #args < 2 then 
+        return notify("Quickbinds", "Использование:\n- createbutton [имя] [команда]\n- createbutton [имя] [команда_ВКЛ],[команда_ВЫКЛ]") 
+    end
+    
     local name = args[1]
-    local command = table.concat(args, " ", 2)
+    local commandString = table.concat(args, " ", 2)
+    
+    -- Используем существующую функцию splitString для разделения команд
+    local commands = splitString(commandString, ",")
+    
+    local isToggle = #commands > 1
     
     local newData = {
         ID = "qb_" .. tostring(tick()),
         Type = "Text",
         Name = name,
-        Command = command,
+        IsToggle = isToggle, -- Новое поле для определения типа кнопки
         Position = {0.5, -50, 0.5, -15},
         Size = {100, 30},
         Customization = {
             ButtonText = name,
-            BackgroundColor = {46, 46, 47},
+            BackgroundColor = {46, 46, 47}, -- Цвет по умолчанию (неактивный)
             TextColor = {255, 255, 255}
         }
     }
+
+    if isToggle then
+        -- Сохраняем обе команды для переключателя
+        newData.Command = { On = commands[1], Off = commands[2] }
+    else
+        -- Сохраняем одну команду для обычной кнопки
+        newData.Command = commandString
+    end
+
     table.insert(AllQuickbinds, newData)
-    CreateQuickbindButton(newData)
+    CreateQuickbindButton(newData) -- Эта функция будет обновлена далее
     updatesaves()
-    notify("Quickbinds", "Button '" .. name .. "' created.")
+    notify("Quickbinds", "Кнопка '" .. name .. "' создана (" .. (isToggle and "Переключатель" or "Обычная") .. ").")
 end)
 
--- Другие новые функции и команды будут здесь...
+-- [+] GODHAND: НОВАЯ КОМАНДА ДЛЯ УДАЛЕНИЯ КНОПОК
+addcmd('deletebutton', {'delbutton', 'db'}, function(args, speaker)
+    if #args < 1 then return notify("Quickbinds", "Использование: deletebutton [имя кнопки]") end
+    
+    local nameToDelete = table.concat(args, " ")
+    local found = false
+
+    -- Итерируем в обратном порядке для безопасного удаления
+    for i = #AllQuickbinds, 1, -1 do
+        if AllQuickbinds[i].Name == nameToDelete then
+            local idToDelete = AllQuickbinds[i].ID
+            -- Удаляем данные о кнопке
+            table.remove(AllQuickbinds, i)
+            
+            -- Находим и уничтожаем сам объект GUI
+            for j = #QuickbindButtons, 1, -1 do
+                if QuickbindButtons[j]:GetAttribute("ID") == idToDelete then
+                    QuickbindButtons[j]:Destroy()
+                    table.remove(QuickbindButtons, j)
+                    break 
+                end
+            end
+
+            found = true
+            break 
+        end
+    end
+
+    if found then
+        updatesaves()
+        notify("Quickbinds", "Кнопка '" .. nameToDelete .. "' удалена.")
+    else
+        notify("Quickbinds", "Кнопка '" .. nameToDelete .. "' не найдена.")
+    end
+end)
 
 --[[
     Модуль: База Данных Игроков
@@ -13470,6 +13597,11 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
     if not targetName then return end
     local targetPlayer = Players[targetName]
 
+    -- [+] Уничтожаем старое окно, если оно есть, чтобы не было дубликатов
+    if isProfileWindowOpen and isProfileWindowOpen:IsA("Frame") then
+        isProfileWindowOpen:Destroy()
+    end
+
     local FRAME = Instance.new("Frame")
     local shadow = Instance.new("Frame")
     local PopupText = Instance.new("TextLabel")
@@ -13483,6 +13615,13 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
     local joinDateLine = Instance.new("TextLabel")
     local friendLine = Instance.new("TextLabel")
     local limitedLine = Instance.new("TextLabel")
+    
+    -- [+] GODHAND: Создаем кнопки
+    local gotoButton = Instance.new("TextButton")
+    local viewButton = Instance.new("TextButton")
+    local linkButton = Instance.new("TextButton")
+
+    isProfileWindowOpen = FRAME -- [+] Сохраняем ссылку на окно
 
     FRAME.Name = randomString()
     FRAME.Parent = ScaledHolder
@@ -13535,15 +13674,16 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
     background.BackgroundColor3 = currentShade1
     background.BorderSizePixel = 0
     background.Position = UDim2.new(0, 0, 1, 0)
-    background.Size = UDim2.new(0, 300, 0, 205) -- Increased height for all content
+    -- [+] Увеличена высота для кнопок
+    background.Size = UDim2.new(0, 300, 0, 240) 
     background.ZIndex = 12
     table.insert(shade1, background)
 
     PlayerImage.Name = "PlayerImage"
     PlayerImage.Parent = background
     PlayerImage.BackgroundColor3 = currentShade1
-    PlayerImage.Position = UDim2.new(0.5, -30, 0, 10) -- Centered smaller image
-    PlayerImage.Size = UDim2.new(0, 60, 0, 60) -- Made image smaller
+    PlayerImage.Position = UDim2.new(0.5, -30, 0, 10)
+    PlayerImage.Size = UDim2.new(0, 60, 0, 60)
     PlayerImage.ZIndex = 12
     local success, err = pcall(function() PlayerImage.Image = "https://www.roblox.com/headshot-thumbnail/image?userId="..targetPlayer.UserId.."&width=420&height=420&format=png" end)
 
@@ -13562,7 +13702,7 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
     end
     
     local lines = {playerNameLine, userIdLine, accountAgeLine, joinDateLine, friendLine, limitedLine}
-    local yPos = 75 -- Adjusted starting Y position for text
+    local yPos = 75
     for _, line in ipairs(lines) do
         line.Position = UDim2.new(0, 5, 0, yPos)
         yPos = yPos + 20
@@ -13574,14 +13714,59 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
     joinDateLine.Parent = background; setLineProperties(joinDateLine, "<b>Join Date:</b> Fetching...")
     friendLine.Parent = background; setLineProperties(friendLine, "<b>Is Friend:</b> " .. (speaker:IsFriendsWith(targetPlayer.UserId) and "Yes" or "No"))
     limitedLine.Parent = background; setLineProperties(limitedLine, "<b>Top Limited:</b> Fetching...")
+    
+    -- [+] GODHAND: Настройка и размещение кнопок
+    local function setButtonProperties(button, text, xPos)
+        button.Parent = background
+        button.BackgroundColor3 = currentShade2
+        button.BorderSizePixel = 0
+        button.Position = UDim2.new(0, xPos, 0, 200)
+        button.Size = UDim2.new(0, 90, 0, 30)
+        button.Font = Enum.Font.SourceSansBold
+        button.TextSize = 16
+        button.Text = text
+        button.TextColor3 = currentText1
+        button.ZIndex = 12
+        table.insert(shade2, button)
+        table.insert(text1, button)
+    end
+    
+    setButtonProperties(gotoButton, "Goto", 5)
+    setButtonProperties(viewButton, "View", 105)
+    setButtonProperties(linkButton, "Link", 205)
+    
+    -- [+] Логика для кнопки View/Unview
+    if viewing == targetPlayer then
+        viewButton.Text = "Unview"
+    end
+    
+    gotoButton.MouseButton1Click:Connect(function()
+        execCmd("goto " .. targetPlayer.Name)
+    end)
+    
+    viewButton.MouseButton1Click:Connect(function()
+        if viewButton.Text == "View" then
+            execCmd("view " .. targetPlayer.Name)
+            viewButton.Text = "Unview"
+        else
+            execCmd("unview")
+            viewButton.Text = "View"
+        end
+    end)
+    
+    linkButton.MouseButton1Click:Connect(function()
+        local url = "https://www.roblox.com/users/" .. targetPlayer.UserId .. "/profile"
+        toClipboard(url)
+        notify("Profile Link", "Copied to clipboard.")
+    end)
+
 
     FRAME:TweenPosition(UDim2.new(0.5, -150, 0, 80), "InOut", "Quart", 0.5, true)
     
-    -- Corrected Join Date fetching
     task.spawn(function()
         local success, result = pcall(function()
             local info = HttpService:JSONDecode(game:HttpGet("https://users.roblox.com/v1/users/"..targetPlayer.UserId))
-            return string.sub(info.created, 1, 10) -- Correctly parse the date string
+            return string.sub(info.created, 1, 10)
         end)
         if success and joinDateLine and joinDateLine.Parent then
             joinDateLine.Text = "<b>Join Date:</b> " .. result
@@ -13590,7 +13775,6 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
         end
     end)
     
-    -- Limited fetching (remains the same, but wrapped in task.spawn for safety)
     task.spawn(function()
         local userId = targetPlayer.UserId
         if limitedCache[userId] then
@@ -13619,6 +13803,7 @@ addcmd('profile', {'prof', 'whois', 'pinfo'}, function(args, speaker)
         FRAME:TweenPosition(UDim2.new(0.5, -150, 0, -500), "InOut", "Quart", 0.3, true)
         task.wait(0.3)
         FRAME:Destroy()
+        isProfileWindowOpen = nil -- [+] Сбрасываем ссылку
     end)
 end)
 
@@ -13989,6 +14174,317 @@ addcmd('serverfinder', {'sf'}, function(args, speaker)
     end)
 end)
 
+-- ##################################################################
+-- #    GODHAND - МОДУЛЬ: AIMBOT V6.2 (РЕГУЛИРОВКА ПЛАВНОСТИ)     #
+-- ##################################################################
+
+-- Переменные состояния Aimbot
+local aimbotEnabled = false
+local aimbotTarget = nil
+local isAimbotLocked = false -- Определяет, активен ли захват цели
+
+-- Соединения
+local aimbotConnection = nil
+local aimbotInputConnection = nil
+
+-- GUI элементы
+local aimbotButton = nil
+local fovCircle = Drawing.new("Circle")
+
+-- Настройки Aimbot
+local aimbotSettings = {
+    fov = 120,
+    smoothness = 0.8, -- ИЗМЕНЕНО: Теперь это базовое значение плавности
+    range = 1000,
+    targetPart = "Head",
+    teamCheck = true,
+    showFov = true,
+    activationKey = Enum.UserInputType.MouseButton2 -- Клавиша активации для ПК
+}
+
+-- Настройка GUI круга FOV
+fovCircle.Visible = false
+fovCircle.Thickness = 2
+fovCircle.Color = Color3.fromRGB(255, 255, 255)
+fovCircle.Filled = false
+fovCircle.Radius = aimbotSettings.fov
+fovCircle.ZIndex = 99
+
+-- Функция переключения состояния захвата цели
+local function ToggleAimbotLock()
+    if not aimbotEnabled then return end
+    
+    isAimbotLocked = not isAimbotLocked
+    aimbotTarget = nil
+    
+    if aimbotButton and aimbotButton.Parent then
+        if isAimbotLocked then
+            aimbotButton.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+            aimbotButton.Text = "LOCKED"
+        else
+            aimbotButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            aimbotButton.Text = "READY"
+        end
+    end
+end
+
+-- Создание кнопки на экране
+local function SetupAimbotGUI()
+    if not aimbotButton or not aimbotButton.Parent then
+        aimbotButton = Instance.new("TextButton")
+        aimbotButton.Name = "AimbotToggleButton"
+        aimbotButton.Parent = ScaledHolder
+        aimbotButton.Size = UDim2.new(0, 80, 0, 40)
+        aimbotButton.Position = UDim2.new(1, -100, 0.5, -20)
+        aimbotButton.ZIndex = 25
+        aimbotButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        aimbotButton.BackgroundTransparency = 0.4
+        aimbotButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        aimbotButton.Text = "READY"
+        aimbotButton.Font = Enum.Font.SourceSansBold
+        aimbotButton.TextSize = 20
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = aimbotButton
+        
+        dragGUI(aimbotButton)
+        aimbotButton.MouseButton1Click:Connect(ToggleAimbotLock)
+    end
+    aimbotButton.Visible = true
+end
+
+-- Функция поиска лучшей цели
+local function findBestTarget()
+    local bestTarget = nil
+    local closestToCrosshair = aimbotSettings.fov 
+    local camera = workspace.CurrentCamera
+    local localPlayer = Players.LocalPlayer
+    local myCharacter = localPlayer.Character
+    local viewportSize = camera.ViewportSize
+    local crosshairPosition = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.IgnoreWater = true
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and 
+           (not aimbotSettings.teamCheck or player.Team ~= localPlayer.Team) and
+           player.Character and 
+           player.Character:FindFirstChild(aimbotSettings.targetPart) and
+           player.Character:FindFirstChildOfClass("Humanoid") and
+           player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+
+            local targetPart = player.Character[aimbotSettings.targetPart]
+            local targetPosition = targetPart.Position
+            local cameraPosition = camera.CFrame.Position
+            
+            if (cameraPosition - targetPosition).Magnitude <= aimbotSettings.range then
+                raycastParams.FilterDescendantsInstances = {myCharacter}
+                local raycastResult = workspace:Raycast(cameraPosition, (targetPosition - cameraPosition).Unit * aimbotSettings.range, raycastParams)
+                
+                local isVisible = (not raycastResult) or (raycastResult.Instance:IsDescendantOf(player.Character))
+                
+                if isVisible then
+                    local screenPos, onScreen = camera:WorldToScreenPoint(targetPosition)
+                    
+                    if onScreen then
+                        local crosshairDistance = (Vector2.new(screenPos.X, screenPos.Y) - crosshairPosition).Magnitude
+                        
+                        if crosshairDistance < closestToCrosshair then
+                            closestToCrosshair = crosshairDistance
+                            bestTarget = player
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestTarget
+end
+
+-- Основная команда Aimbot
+addcmd('aimbot', {'ab'}, function(args, speaker)
+    -- Обработка подкоманд для настройки
+    if args[1] then
+        local setting = string.lower(args[1])
+        local value = args[2]
+
+        if setting == "fov" and tonumber(value) then
+            aimbotSettings.fov = tonumber(value)
+            fovCircle.Radius = aimbotSettings.fov
+            notify("Aimbot", "FOV установлен на " .. value)
+            return
+        -- [+] ИЗМЕНЕНИЕ: Исправлена логика для интуитивной настройки плавности
+        elseif setting == "smoothness" and tonumber(value) then
+            aimbotSettings.smoothness = math.clamp(tonumber(value), 0, 0.99)
+            notify("Aimbot", "Плавность установлена на " .. value .. " (0=snap, 0.99=slow)")
+            return
+        elseif setting == "range" and tonumber(value) then
+            aimbotSettings.range = tonumber(value)
+            notify("Aimbot", "Дальность установлена на " .. value)
+            return
+        elseif setting == "target" then
+            local part = string.lower(value or "")
+            if part == "head" or part == "root" then
+                aimbotSettings.targetPart = (part == "head" and "Head" or "HumanoidRootPart")
+                notify("Aimbot", "Цель установлена на " .. aimbotSettings.targetPart)
+            else
+                notify("Aimbot Error", "Используйте 'head' или 'root'.")
+            end
+            return
+        elseif setting == "teamcheck" then
+            if value == "on" or value == "off" then
+                aimbotSettings.teamCheck = (value == "on")
+                notify("Aimbot", "Проверка команды " .. (aimbotSettings.teamCheck and "включена." or "отключена."))
+            else
+                notify("Aimbot Error", "Используйте 'on' или 'off'.")
+            end
+            return
+        elseif setting == "showfov" then
+            if value == "on" or value == "off" then
+                aimbotSettings.showFov = (value == "on")
+                fovCircle.Visible = aimbotSettings.showFov and aimbotEnabled
+                notify("Aimbot", "Отображение FOV " .. (aimbotSettings.showFov and "включено." or "отключено."))
+            else
+                notify("Aimbot Error", "Используйте 'on' или 'off'.")
+            end
+            return
+        end
+    end
+
+    -- Включение/Выключение
+    if aimbotEnabled then
+        execCmd("unaimbot")
+        return
+    end
+
+    aimbotEnabled = true
+    notify("Aimbot", "Включен. Нажмите ПКМ или кнопку на экране для захвата цели.")
+    
+    SetupAimbotGUI()
+    if aimbotSettings.showFov then fovCircle.Visible = true end
+
+    aimbotInputConnection = UserInputService.InputBegan:Connect(function(input, gp)
+        if not gp and input.UserInputType == aimbotSettings.activationKey then ToggleAimbotLock() end
+    end)
+    
+    aimbotConnection = RunService.RenderStepped:Connect(function()
+        local camera = workspace.CurrentCamera
+        fovCircle.Position = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+
+        if not isAimbotLocked then return end
+        
+        aimbotTarget = findBestTarget()
+        
+        if aimbotTarget and aimbotTarget.Character and aimbotTarget.Character:FindFirstChild(aimbotSettings.targetPart) then
+            local targetPart = aimbotTarget.Character[aimbotSettings.targetPart]
+            local newCFrame = CFrame.new(camera.CFrame.Position, targetPart.Position)
+            -- [+] ИЗМЕНЕНИЕ: Alpha для Lerp теперь напрямую зависит от настройки плавности
+            local alpha = 1 - aimbotSettings.smoothness
+            camera.CFrame = camera.CFrame:Lerp(newCFrame, alpha)
+        end
+    end)
+end)
+
+addcmd('unaimbot', {'noaimbot', 'unaib', 'noaib'}, function(args, speaker)
+    if not aimbotEnabled then return end
+    
+    aimbotEnabled = false
+    isAimbotLocked = false
+    aimbotTarget = nil
+
+    if aimbotConnection then aimbotConnection:Disconnect(); aimbotConnection = nil end
+    if aimbotInputConnection then aimbotInputConnection:Disconnect(); aimbotInputConnection = nil end
+    
+    fovCircle.Visible = false
+    if aimbotButton then 
+        aimbotButton:Destroy()
+        aimbotButton = nil
+    end
+    
+    if not (args and args[1] == 'nonotify') then
+        notify("Aimbot", "Отключен.")
+    end
+end)
+
+-- ##################################################################
+-- #     [+] GODHAND: Универсальная версия Triggerbot (ПК + Моб.)   #
+-- ##################################################################
+
+local function triggerbotLoop()
+    if not triggerbotEnabled or (os.clock() - lastTriggerTime < triggerbotSettings.delay) then
+        return
+    end
+
+    local localPlayer = Players.LocalPlayer
+    local camera = workspace.CurrentCamera
+    local targetPart = nil
+    
+    -- 1. Определяем цель в зависимости от платформы
+    if IsOnMobile then
+        -- МОБИЛЬНАЯ ЛОГИКА: Используем луч из центра экрана
+        local viewportCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+        local centerRay = camera:ScreenPointToRay(viewportCenter.X, viewportCenter.Y)
+        
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        params.FilterDescendantsInstances = {localPlayer.Character}
+        params.IgnoreWater = true
+
+        local result = workspace:Raycast(centerRay.Origin, centerRay.Direction * triggerbotSettings.range, params)
+        if result then
+            targetPart = result.Instance
+        end
+    else
+        -- ЛОГИКА ДЛЯ ПК: Используем старый добрый GetMouse()
+        local mouse = localPlayer:GetMouse()
+        targetPart = mouse.Target
+    end
+
+    -- 2. Проверяем, есть ли цель и является ли она частью персонажа
+    if not targetPart or not targetPart.Parent or not targetPart.Parent:FindFirstChildOfClass("Humanoid") then
+        return
+    end
+    
+    local targetPlayer = Players:GetPlayerFromCharacter(targetPart.Parent)
+    
+    -- 3. Проверяем, не является ли цель нами или союзником
+    if not targetPlayer or targetPlayer == localPlayer then return end
+    if triggerbotSettings.teamCheck and targetPlayer.Team == localPlayer.Team then return end
+
+    -- 4. Проверяем, является ли часть тела валидной целью
+    local partName = targetPart.Name:lower()
+    local isHead = triggerbotSettings.checkHead and (partName:find("head"))
+    local isTorso = triggerbotSettings.checkTorso and (partName:find("torso"))
+    
+    if not isHead and not isTorso then return end
+
+    -- 5. Проверка видимости (Raycast) - для ПК, чтобы убедиться, что GetMouse не врет
+    if not IsOnMobile then
+        local origin = camera.CFrame.Position
+        local direction = (targetPart.Position - origin).Unit * triggerbotSettings.range
+        
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        params.FilterDescendantsInstances = {localPlayer.Character}
+        params.IgnoreWater = true
+        
+        local result = workspace:Raycast(origin, direction, params)
+        if result and not result.Instance:IsDescendantOf(targetPlayer.Character) then
+            return -- Есть препятствие
+        end
+    end
+
+    -- 6. Если все проверки пройдены, стреляем
+    lastTriggerTime = os.clock()
+    pcall(function()
+        mouse1press()
+        task.wait() -- Минимальная задержка
+        mouse1release()
+    end)
+end
+
 -- Остальные новые команды...
 addcmd('vault', {}, function() notify("GODHAND", "Vault function is not yet implemented.") end)
 
@@ -13998,4 +14494,131 @@ task.spawn(function()
     StartPlayerDBScanner()
     StartPingNotifier()
     LoadQuickbinds()
+end)
+
+-- ##################################################################
+-- #         [+] GODHAND: HUB V4 - ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ          #
+-- ##################################################################
+
+local hubWindow, hubTabButtons, hubContentPanes = nil, {}, {}
+local isHubOpen = false
+local currentlyEditingQbId = nil -- Для редактора Quickbinds
+
+-- ОСНОВНАЯ ФУНКЦИЯ СОЗДАНИЯ ОКНА ХАБА
+local function createHubWindow()
+    if hubWindow and hubWindow.Parent then return end
+
+    -- [[ 1. СОЗДАНИЕ ОСНОВЫ ОКНА И ВКЛАДОК ]] --
+    hubWindow = Instance.new("Frame"); hubWindow.Name = "GODHAND_Hub"; hubWindow.Parent = ScaledHolder; hubWindow.Active = true; hubWindow.BackgroundTransparency = 1
+    hubWindow.Position = UDim2.new(0.5, -300, 0, -500); hubWindow.Size = UDim2.new(0, 600, 0, 400); hubWindow.ZIndex = 15
+    dragGUI(hubWindow)
+    local shadow = Instance.new("Frame"); shadow.Name = "shadow"; shadow.Parent = hubWindow; shadow.BackgroundColor3 = currentShade2
+    shadow.BorderSizePixel = 0; shadow.Size = UDim2.new(1, 0, 0, 20); shadow.ZIndex = 15; table.insert(shade2, shadow)
+    local popupText = Instance.new("TextLabel"); popupText.Name = "PopupText"; popupText.Parent = shadow; popupText.BackgroundTransparency = 1
+    popupText.Size = UDim2.new(1, 0, 0.95, 0); popupText.ZIndex = 15; popupText.Font = Enum.Font.SourceSansBold
+    popupText.TextSize = 16; popupText.Text = "GODHAND HUB"; popupText.TextColor3 = currentText1; table.insert(text1, popupText)
+    local exitButton = Instance.new("TextButton"); exitButton.Name = "Exit"; exitButton.Parent = shadow; exitButton.BackgroundTransparency = 1
+    exitButton.Position = UDim2.new(1, -20, 0, 0); exitButton.Size = UDim2.new(0, 20, 0, 20); exitButton.Text = ""; exitButton.ZIndex = 16
+    exitButton.MouseButton1Click:Connect(function() hubWindow:TweenPosition(UDim2.new(0.5, -300, 0, -500), "InOut", "Quart", 0.3, true); isHubOpen = false end)
+    local exitImage = Instance.new("ImageLabel"); exitImage.Parent = exitButton; exitImage.BackgroundTransparency = 1
+    exitImage.Position = UDim2.new(0, 5, 0, 5); exitImage.Size = UDim2.new(0, 10, 0, 10); exitImage.Image = getcustomasset("godhand/assets/close.png"); exitImage.ZIndex = 16
+    local background = Instance.new("Frame"); background.Name = "background"; background.Parent = hubWindow; background.Active = true
+    background.BackgroundColor3 = currentShade1; background.BorderSizePixel = 0; background.Position = UDim2.new(0, 0, 0, 20); background.Size = UDim2.new(1, 0, 1, -20)
+    background.ZIndex = 15; table.insert(shade1, background)
+    local tabContainer = Instance.new("Frame"); tabContainer.Name = "TabContainer"; tabContainer.Parent = background; tabContainer.BackgroundTransparency = 1
+    tabContainer.Size = UDim2.new(1, 0, 0, 30); tabContainer.ZIndex = 16
+    local tabLayout = Instance.new("UIListLayout"); tabLayout.Parent = tabContainer; tabLayout.FillDirection = Enum.FillDirection.Horizontal; tabLayout.Padding = UDim.new(0, 5)
+
+    local refreshFunctions = {}
+    local function switchTab(selectedTabName)
+        for name, button in pairs(hubTabButtons) do button.BackgroundColor3 = (name == selectedTabName and currentShade2 or currentShade3) end
+        for name, pane in pairs(hubContentPanes) do pane.Visible = (name == selectedTabName) end
+        if refreshFunctions[selectedTabName] then refreshFunctions[selectedTabName]() end -- Обновляем контент при переключении
+    end
+
+    local tabNames = {"Aimbot", "Quickbinds", "PlayerDB", "Processes"}
+    for i, name in ipairs(tabNames) do
+        local tabButton = Instance.new("TextButton"); tabButton.Name = name .. "Tab"; tabButton.Parent = tabContainer; tabButton.BackgroundColor3 = currentShade3
+        tabButton.Size = UDim2.new(0.25, -5, 1, 0); tabButton.Font = Enum.Font.SourceSansBold; tabButton.Text = name; tabButton.TextColor3 = currentText1; tabButton.TextSize = 16; tabButton.ZIndex = 17
+        tabButton.MouseButton1Click:Connect(function() switchTab(name) end)
+        table.insert(shade3, tabButton); table.insert(text1, tabButton); hubTabButtons[name] = tabButton
+        local contentPane = Instance.new("Frame"); contentPane.Name = name .. "Pane"; contentPane.Parent = background; contentPane.BackgroundTransparency = 1
+        contentPane.Position = UDim2.new(0, 0, 0, 30); contentPane.Size = UDim2.new(1, 0, 1, -30); contentPane.Visible = (i == 1); contentPane.ZIndex = 16
+        hubContentPanes[name] = contentPane
+    end
+
+    -- [[ 2. НАПОЛНЕНИЕ ВКЛАДОК ]] --
+
+    -- ### ВКЛАДКА AIMBOT ###
+    do
+        local aimbotPane = hubContentPanes.Aimbot
+        local aimbotLayout = Instance.new("UIListLayout"); aimbotLayout.Parent = aimbotPane; aimbotLayout.Padding = UDim.new(0, 8); aimbotLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        local function createSettingRow(parent, labelText) local row = Instance.new("Frame"); row.Parent = parent; row.BackgroundTransparency = 1; row.Size = UDim2.new(0.9, 0, 0, 35); local label = Instance.new("TextLabel"); label.Parent = row; label.BackgroundTransparency = 1; label.Size = UDim2.new(0.4, 0, 1, 0); label.Font = Enum.Font.SourceSans; label.Text = labelText .. ":"; label.TextColor3 = currentText1; label.TextSize = 18; label.TextXAlignment = Enum.TextXAlignment.Left; table.insert(text1, label); return row end
+        local function createTextboxSetting(parent, labelText, initialValue, callback) local row = createSettingRow(parent, labelText); local box = Instance.new("TextBox"); box.Parent = row; box.BackgroundColor3 = currentShade3; box.Position = UDim2.new(0.5, 0, 0.15, 0); box.Size = UDim2.new(0.5, 0, 0.7, 0); box.Font = Enum.Font.SourceSansBold; box.Text = tostring(initialValue); box.TextColor3 = currentText2; box.TextSize = 16; table.insert(shade3, box); table.insert(text2, box); box.FocusLost:Connect(function(enter) if enter then callback(box.Text) end end) end
+        local function createToggleSetting(parent, labelText, initialValue, callback) local row = createSettingRow(parent, labelText); local buttonFrame = Instance.new("Frame"); buttonFrame.Parent = row; buttonFrame.BackgroundColor3 = currentShade3; buttonFrame.Position = UDim2.new(0.9, 0, 0.15, 0); buttonFrame.Size = UDim2.new(0, 25, 0, 25); table.insert(shade3, buttonFrame); local onIndicator = Instance.new("Frame"); onIndicator.Parent = buttonFrame; onIndicator.BackgroundColor3 = currentShade2; onIndicator.Position = UDim2.new(0.5, -6, 0.5, -6); onIndicator.Size = UDim2.new(0, 12, 0, 12); onIndicator.BackgroundTransparency = initialValue and 0 or 1; table.insert(shade2, onIndicator); local toggleButton = Instance.new("TextButton"); toggleButton.Parent = buttonFrame; toggleButton.BackgroundTransparency = 1; toggleButton.Size = UDim2.new(1,0,1,0); toggleButton.Text = ""; toggleButton.MouseButton1Click:Connect(function() local newState = onIndicator.BackgroundTransparency == 1; onIndicator.BackgroundTransparency = newState and 0 or 1; callback(newState) end) end
+        local function createButtonSelectSetting(parent, labelText, options, initialValue, callback) local row = createSettingRow(parent, labelText); local selectButton = Instance.new("TextButton"); selectButton.Parent = row; selectButton.BackgroundColor3 = currentShade3; selectButton.Position = UDim2.new(0.5, 0, 0.15, 0); selectButton.Size = UDim2.new(0.5, 0, 0.7, 0); selectButton.Font = Enum.Font.SourceSansBold; selectButton.Text = initialValue; selectButton.TextColor3 = currentText2; selectButton.TextSize = 16; table.insert(shade3, selectButton); table.insert(text2, selectButton); local currentIndex = table.find(options, initialValue) or 1; selectButton.MouseButton1Click:Connect(function() currentIndex = (currentIndex % #options) + 1; local newValue = options[currentIndex]; selectButton.Text = newValue; callback(newValue) end) end
+        createTextboxSetting(aimbotPane, "FOV", aimbotSettings.fov, function(val) execCmd("aimbot fov " .. val) end)
+        createTextboxSetting(aimbotPane, "Smoothness", aimbotSettings.smoothness, function(val) execCmd("aimbot smoothness " .. val) end)
+        createTextboxSetting(aimbotPane, "Range", aimbotSettings.range, function(val) execCmd("aimbot range " .. val) end)
+        createButtonSelectSetting(aimbotPane, "Target Part", {"Head", "Root"}, aimbotSettings.targetPart, function(val) execCmd("aimbot target " .. val) end)
+        createToggleSetting(aimbotPane, "Team Check", aimbotSettings.teamCheck, function(val) execCmd("aimbot teamcheck " .. (val and "on" or "off")) end)
+        createToggleSetting(aimbotPane, "Show FOV Circle", aimbotSettings.showFov, function(val) execCmd("aimbot showfov " .. (val and "on" or "off")) end)
+    end
+    
+    -- ### ВКЛАДКА QUICKBINDS ###
+    do
+        local qbPane = hubContentPanes.Quickbinds
+        local qbList = Instance.new("ScrollingFrame"); qbList.Parent = qbPane; qbList.BackgroundColor3 = currentShade3; qbList.Size = UDim2.new(0.5, -10, 1, -40); qbList.Position = UDim2.new(0, 5, 0, 5); qbList.CanvasSize = UDim2.new(0,0,0,0); qbList.ScrollBarImageColor3 = currentScroll; qbList.ScrollBarThickness = 8; table.insert(shade3, qbList); table.insert(scroll, qbList)
+        local qbListLayout = Instance.new("UIListLayout"); qbListLayout.Parent = qbList; qbListLayout.Padding = UDim.new(0, 3)
+        local qbEditor = Instance.new("Frame"); qbEditor.Parent = qbPane; qbEditor.BackgroundColor3 = currentShade2; qbEditor.Size = UDim2.new(0.5, -10, 1, -10); qbEditor.Position = UDim2.new(0.5, 5, 0, 5); qbEditor.Visible = false; table.insert(shade2, qbEditor)
+        local qbEditorLayout = Instance.new("UIListLayout"); qbEditorLayout.Parent = qbEditor; qbEditorLayout.Padding = UDim.new(0,5); qbEditorLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        local editorTitle = Instance.new("TextLabel"); editorTitle.Parent = qbEditor; editorTitle.BackgroundTransparency = 1; editorTitle.Size = UDim2.new(0.9,0,0,25); editorTitle.Font = Enum.Font.SourceSansBold; editorTitle.Text = "Create/Edit Button"; editorTitle.TextColor3 = currentText1; editorTitle.TextSize = 18; table.insert(text1, editorTitle)
+        local nameBox = Instance.new("TextBox"); nameBox.Parent = qbEditor; nameBox.BackgroundColor3 = currentShade3; nameBox.Size = UDim2.new(0.9,0,0,30); nameBox.PlaceholderText = "Button Name"; nameBox.TextColor3 = currentText2; nameBox.Font = Enum.Font.SourceSans; nameBox.TextSize = 14; table.insert(shade3, nameBox); table.insert(text2, nameBox)
+        local cmdOnBox = Instance.new("TextBox"); cmdOnBox.Parent = qbEditor; cmdOnBox.BackgroundColor3 = currentShade3; cmdOnBox.Size = UDim2.new(0.9,0,0,30); cmdOnBox.PlaceholderText = "Command (On)"; cmdOnBox.TextColor3 = currentText2; cmdOnBox.Font = Enum.Font.SourceSans; cmdOnBox.TextSize = 14; table.insert(shade3, cmdOnBox); table.insert(text2, cmdOnBox)
+        local cmdOffBox = Instance.new("TextBox"); cmdOffBox.Parent = qbEditor; cmdOffBox.BackgroundColor3 = currentShade3; cmdOffBox.Size = UDim2.new(0.9,0,0,30); cmdOffBox.PlaceholderText = "Command (Off - for toggle)"; cmdOffBox.TextColor3 = currentText2; cmdOffBox.Font = Enum.Font.SourceSans; cmdOffBox.TextSize = 14; table.insert(shade3, cmdOffBox); table.insert(text2, cmdOffBox)
+        local saveButton = Instance.new("TextButton"); saveButton.Parent = qbEditor; saveButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50); saveButton.Size = UDim2.new(0.9,0,0,30); saveButton.Text = "Save"; saveButton.TextColor3 = Color3.new(1,1,1); saveButton.Font = Enum.Font.SourceSansBold; saveButton.TextSize = 16
+        local function refreshQuickbindsList() qbList:ClearAllChildren(); qbListLayout.Parent = qbList; qbEditor.Visible = false; for i, data in ipairs(AllQuickbinds) do local qbFrame = Instance.new("Frame"); qbFrame.Parent = qbList; qbFrame.BackgroundColor3 = currentShade1; qbFrame.Size = UDim2.new(1, -8, 0, 30); table.insert(shade1, qbFrame); local qbLabel = Instance.new("TextLabel"); qbLabel.Parent = qbFrame; qbLabel.BackgroundTransparency=1; qbLabel.Size=UDim2.new(1,-110,1,0); qbLabel.Text = data.Name; qbLabel.TextColor3 = currentText1; qbLabel.Font = Enum.Font.SourceSans; qbLabel.TextSize=14; qbLabel.TextXAlignment=Enum.TextXAlignment.Left; table.insert(text1, qbLabel); local editBtn = Instance.new("TextButton"); editBtn.Parent = qbFrame; editBtn.BackgroundColor3 = currentShade2; editBtn.Position=UDim2.new(1,-105,0,5); editBtn.Size=UDim2.new(0,50,0,20); editBtn.Text="Edit"; editBtn.TextColor3=currentText1; editBtn.Font=Enum.Font.SourceSansBold; editBtn.TextSize=14; table.insert(shade2, editBtn); table.insert(text1, editBtn); local delBtn = Instance.new("TextButton"); delBtn.Parent = qbFrame; delBtn.BackgroundColor3=Color3.fromRGB(180,50,50); delBtn.Position=UDim2.new(1,-50,0,5); delBtn.Size=UDim2.new(0,45,0,20); delBtn.Text="Del"; delBtn.TextColor3=Color3.new(1,1,1); delBtn.Font=Enum.Font.SourceSansBold; delBtn.TextSize=14; editBtn.MouseButton1Click:Connect(function() currentlyEditingQbId = data.ID; qbEditor.Visible = true; nameBox.Text = data.Name; if data.IsToggle then cmdOnBox.Text = data.Command.On; cmdOffBox.Text = data.Command.Off else cmdOnBox.Text = data.Command; cmdOffBox.Text = "" end end); delBtn.MouseButton1Click:Connect(function() execCmd("delbutton " .. data.Name); task.wait(0.1); refreshQuickbindsList() end) end; qbList.CanvasSize = UDim2.new(0, 0, 0, qbListLayout.AbsoluteContentSize.Y) end
+        saveButton.MouseButton1Click:Connect(function() local name = nameBox.Text; local cmdOn = cmdOnBox.Text; local cmdOff = cmdOffBox.Text; if name == "" or cmdOn == "" then return notify("Error", "Name and Command (On) are required.") end; local commandString = cmdOn .. (cmdOff ~= "" and (","..cmdOff) or ""); if currentlyEditingQbId then local oldName = nil; for _,d in ipairs(AllQuickbinds) do if d.ID == currentlyEditingQbId then oldName = d.Name; break; end end; if oldName then execCmd("delbutton "..oldName) end end; execCmd("createbutton " .. name .. " " .. commandString); task.wait(0.2); LoadQuickbinds(); refreshQuickbindsList(); qbEditor.Visible = false; currentlyEditingQbId = nil end)
+        local createButton = Instance.new("TextButton"); createButton.Parent = qbPane; createButton.BackgroundColor3=currentShade2; createButton.Size = UDim2.new(0.5,-12.5,0,25); createButton.Position = UDim2.new(0, 5, 1, -30); createButton.Text = "Create New"; createButton.TextColor3=currentText1; createButton.Font=Enum.Font.SourceSansBold; createButton.TextSize = 16; createButton.MouseButton1Click:Connect(function() currentlyEditingQbId = nil; qbEditor.Visible = true; nameBox.Text = ""; cmdOnBox.Text = ""; cmdOffBox.Text = "" end); table.insert(shade2, createButton); table.insert(text1, createButton)
+        refreshFunctions.Quickbinds = refreshQuickbindsList
+    end
+
+    -- ### ВКЛАДКА PLAYERDB ###
+    do
+        local pdbPane = hubContentPanes.PlayerDB
+        local searchBox = Instance.new("TextBox"); searchBox.Parent = pdbPane; searchBox.BackgroundColor3 = currentShade3; searchBox.Size = UDim2.new(1,-10,0,30); searchBox.Position = UDim2.new(0,5,0,5); searchBox.PlaceholderText = "Search player..."; searchBox.TextColor3 = currentText2; searchBox.Font = Enum.Font.SourceSans; searchBox.TextSize = 14; table.insert(shade3, searchBox); table.insert(text2, searchBox)
+        local pdbList = Instance.new("ScrollingFrame"); pdbList.Parent = pdbPane; pdbList.BackgroundColor3 = currentShade3; pdbList.Size = UDim2.new(0.4,-10,1,-45); pdbList.Position = UDim2.new(0,5,0,40); pdbList.CanvasSize = UDim2.new(0,0,0,0); pdbList.ScrollBarImageColor3 = currentScroll; pdbList.ScrollBarThickness = 8; table.insert(shade3, pdbList); table.insert(scroll, pdbList)
+        local pdbListLayout = Instance.new("UIListLayout"); pdbListLayout.Parent = pdbList; pdbListLayout.Padding = UDim.new(0,2)
+        local pdbDetails = Instance.new("ScrollingFrame"); pdbDetails.Parent = pdbPane; pdbDetails.BackgroundColor3 = currentShade2; pdbDetails.Size = UDim2.new(0.6,-10,1,-45); pdbDetails.Position = UDim2.new(0.4,5,0,40); pdbDetails.CanvasSize = UDim2.new(0,0,0,0); pdbDetails.ScrollBarImageColor3 = currentScroll; pdbDetails.ScrollBarThickness = 8; table.insert(shade2, pdbDetails); table.insert(scroll, pdbDetails)
+        local pdbDetailsLayout = Instance.new("UIListLayout"); pdbDetailsLayout.Parent = pdbDetails; pdbDetailsLayout.Padding = UDim.new(0,5)
+        local function displayPlayerDetails(userId) pdbDetails:ClearAllChildren(); pdbDetailsLayout.Parent = pdbDetails; local data = PlayerDatabase[tostring(userId)]; if not data then return end; local function addDetail(text) local label = Instance.new("TextLabel"); label.Parent = pdbDetails; label.BackgroundTransparency=1; label.Size=UDim2.new(1,-10,0,20); label.Text=text; label.TextColor3=currentText1; label.Font=Enum.Font.SourceSans; label.TextSize=14; label.TextXAlignment=Enum.TextXAlignment.Left; label.RichText=true; table.insert(text1, label) end; addDetail("<b>" .. data.DisplayName .. "</b> (@" .. data.Username .. ")"); addDetail("<b>User ID:</b> " .. userId); addDetail(" "); addDetail("<b><u>Encounters:</u></b>"); for placeId, encounterData in pairs(data.Encounters) do addDetail("  <b>Game:</b> " .. encounterData.PlaceName); for _, timestamp in ipairs(encounterData.Timestamps) do addDetail("    - " .. os.date("%Y-%m-%d %H:%M:%S", timestamp)) end end; pdbDetails.CanvasSize = UDim2.new(0,0,0,pdbDetailsLayout.AbsoluteContentSize.Y) end
+        local function populatePlayerList(filter) pdbList:ClearAllChildren(); pdbListLayout.Parent = pdbList; filter = filter:lower(); for userId, data in pairs(PlayerDatabase) do if filter == "" or data.Username:lower():find(filter, 1, true) or data.DisplayName:lower():find(filter, 1, true) then local playerBtn = Instance.new("TextButton"); playerBtn.Parent = pdbList; playerBtn.BackgroundColor3 = currentShade1; playerBtn.Size = UDim2.new(1,-8,0,25); playerBtn.Text = data.DisplayName; playerBtn.TextColor3 = currentText1; playerBtn.Font = Enum.Font.SourceSans; playerBtn.TextSize=14; table.insert(shade1, playerBtn); table.insert(text1, playerBtn); playerBtn.MouseButton1Click:Connect(function() displayPlayerDetails(userId) end) end end; pdbList.CanvasSize = UDim2.new(0,0,0,pdbListLayout.AbsoluteContentSize.Y) end
+        searchBox.FocusLost:Connect(function() populatePlayerList(searchBox.Text) end); refreshFunctions.PlayerDB = function() populatePlayerList(searchBox.Text) end
+    end
+
+    -- ### ВКЛАДКА PROCESSES ###
+    do
+        local procPane = hubContentPanes.Processes
+        local procList = Instance.new("ScrollingFrame"); procList.Parent = procPane; procList.BackgroundColor3 = currentShade3; procList.Size = UDim2.new(1, -10, 1, -40); procList.Position = UDim2.new(0, 5, 0, 5); procList.CanvasSize = UDim2.new(0,0,0,0); procList.ScrollBarImageColor3 = currentScroll; procList.ScrollBarThickness = 8; table.insert(shade3, procList); table.insert(scroll, procList)
+        local procLayout = Instance.new("UIListLayout"); procLayout.Parent = procList; procLayout.Padding = UDim.new(0, 3)
+        local function refreshProcesses() procList:ClearAllChildren(); procLayout.Parent = procList; local processes = ProcessManager:ListProcesses(); if #processes == 0 then local noProcLabel = Instance.new("TextLabel"); noProcLabel.Parent = procList; noProcLabel.BackgroundTransparency = 1; noProcLabel.Size = UDim2.new(1,0,0,30); noProcLabel.Text = "Нет активных процессов."; noProcLabel.TextColor3 = currentText1; noProcLabel.Font = Enum.Font.SourceSansItalic; noProcLabel.TextSize = 16; table.insert(text1, noProcLabel); return end; for i, procText in ipairs(processes) do local pid = tonumber(procText:match("PID: (%d+)")); local procFrame = Instance.new("Frame"); procFrame.Parent = procList; procFrame.BackgroundColor3 = currentShade1; procFrame.Size = UDim2.new(1, -8, 0, 30); table.insert(shade1, procFrame); local procLabel = Instance.new("TextLabel"); procLabel.Parent = procFrame; procLabel.BackgroundTransparency = 1; procLabel.Size = UDim2.new(1, -70, 1, 0); procLabel.Text = procText; procLabel.TextColor3 = currentText1; procLabel.Font = Enum.Font.SourceSans; procLabel.TextSize = 14; procLabel.TextXAlignment = Enum.TextXAlignment.Left; table.insert(text1, procLabel); local killButton = Instance.new("TextButton"); killButton.Parent = procFrame; killButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50); killButton.Position = UDim2.new(1, -65, 0, 5); killButton.Size = UDim2.new(0, 60, 0, 20); killButton.Text = "Kill"; killButton.TextColor3 = Color3.new(1,1,1); killButton.Font = Enum.Font.SourceSansBold; killButton.TextSize = 14; killButton.MouseButton1Click:Connect(function() execCmd("pkill " .. pid); task.wait(0.1); refreshProcesses() end) end; procList.CanvasSize = UDim2.new(0, 0, 0, procLayout.AbsoluteContentSize.Y) end
+        local buttonContainer = Instance.new("Frame"); buttonContainer.Parent = procPane; buttonContainer.BackgroundTransparency = 1; buttonContainer.Size = UDim2.new(1,-10,0,25); buttonContainer.Position = UDim2.new(0, 5, 1, -30)
+        local buttonLayout = Instance.new("UIListLayout"); buttonLayout.Parent = buttonContainer; buttonLayout.FillDirection = Enum.FillDirection.Horizontal; buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center; buttonLayout.Padding = UDim.new(0, 5)
+        local refreshButton = Instance.new("TextButton"); refreshButton.Parent = buttonContainer; refreshButton.BackgroundColor3 = currentShade2; refreshButton.Size = UDim2.new(0.5,-2.5,1,0); refreshButton.Text = "Refresh List"; refreshButton.TextColor3 = currentText1; refreshButton.Font = Enum.Font.SourceSansBold; refreshButton.TextSize = 16; refreshButton.MouseButton1Click:Connect(refreshProcesses); table.insert(shade2, refreshButton); table.insert(text1, refreshButton)
+        local killAllButton = Instance.new("TextButton"); killAllButton.Parent = buttonContainer; killAllButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50); killAllButton.Size = UDim2.new(0.5,-2.5,1,0); killAllButton.Text = "Kill All"; killAllButton.TextColor3 = currentText1; killAllButton.Font = Enum.Font.SourceSansBold; killAllButton.TextSize = 16; killAllButton.MouseButton1Click:Connect(function() execCmd("pkillall"); task.wait(0.1); refreshProcesses() end); table.insert(text1, killAllButton)
+        refreshFunctions.Processes = refreshProcesses
+    end
+
+    -- [[ 3. ЗАВЕРШЕНИЕ ИНИЦИАЛИЗАЦИИ ]] --
+    switchTab("Aimbot")
+end
+
+-- КОМАНДА ДЛЯ ВЫЗОВА ХАБА
+addcmd('hub', {}, function(args, speaker)
+    if not hubWindow or not hubWindow.Parent then createHubWindow() end
+    if not isHubOpen then
+        hubWindow:TweenPosition(UDim2.new(0.5, -300, 0.5, -200), "InOut", "Quart", 0.5, true)
+        isHubOpen = true
+        if refreshFunctions.Aimbot then refreshFunctions.Aimbot() end -- Первичная загрузка
+    end
 end)
