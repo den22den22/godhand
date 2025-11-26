@@ -4497,13 +4497,29 @@ function autoComplete(str,curText)
 end
 
 CMDs = {}
-CMDs = {}
 CMDs[#CMDs + 1] = {NAME = 'GODHAND', DESC = ''}
 CMDs[#CMDs + 1] = {NAME = 'profile [player]', DESC = 'Shows a detailed profile of a player.'}
 CMDs[#CMDs + 1] = {NAME = 'cmdspam [interval] [command]', DESC = 'Creates a process that repeats a command indefinitely.'}
 CMDs[#CMDs + 1] = {NAME = 'ps', DESC = 'Lists all active processes created by cmdspam.'}
 CMDs[#CMDs + 1] = {NAME = 'pkill [PID]', DESC = 'Kills a specific process by its ID.'}
 CMDs[#CMDs + 1] = {NAME = 'stopcmdspam', DESC = 'Stops all running command loops and processes.'}
+CMDs[#CMDs + 1] = {NAME = '', DESC = ''}
+CMDs[#CMDs + 1] = {NAME = 'Aimbot & Visuals', DESC = ''}
+CMDs[#CMDs + 1] = {NAME = 'aimbot [setting] [value]', DESC = 'Toggles aimbot. Settings: fov, smoothness, range, target, teamcheck, showfov.'}
+CMDs[#CMDs + 1] = {NAME = 'unaimbot', DESC = 'Disables aimbot.'}
+CMDs[#CMDs + 1] = {NAME = 'mimic [player]', DESC = 'Copies a player\'s animations and follows them.'}
+CMDs[#CMDs + 1] = {NAME = 'unmimic', DESC = 'Stops mimicking a player.'}
+
+CMDs[#CMDs + 1] = {NAME = '', DESC = ''}
+CMDs[#CMDs + 1] = {NAME = 'Quickbinds (Custom Buttons)', DESC = ''}
+CMDs[#CMDs + 1] = {NAME = 'createbutton [name] [cmd1],[cmd2]', DESC = 'Creates a button. Use one command for a simple button, or two (on,off) for a toggle.'}
+CMDs[#CMDs + 1] = {NAME = 'deletebutton [name]', DESC = 'Deletes a custom button by its name.'}
+
+CMDs[#CMDs + 1] = {NAME = '', DESC = ''}
+CMDs[#CMDs + 1] = {NAME = 'Network & Server', DESC = ''}
+CMDs[#CMDs + 1] = {NAME = 'netstat', DESC = 'Shows a window with network statistics (ping, data in/out).'}
+CMDs[#CMDs + 1] = {NAME = 'serverfinder [prop] [op] [val]', DESC = 'Finds a server matching criteria (e.g., sf players > 10).'}
+CMDs[#CMDs + 1] = {NAME = 'vault', DESC = '(WIP) Opens the artifact vault.'}
 
 CMDs[#CMDs + 1] = {NAME = '', DESC = ''}
 CMDs[#CMDs + 1] = {NAME = 'System & General', DESC = ''}
@@ -13005,7 +13021,7 @@ if IsOnMobile then
 	QuickCapture.Position = UDim2.new(0.489, 0, 0, 0)
 	QuickCapture.Size = UDim2.new(0, 32, 0, 33)
 	QuickCapture.Font = Enum.Font.SourceSansBold
-	QuickCapture.Text = "IY"
+	QuickCapture.Text = "GH"
 	QuickCapture.TextColor3 = Color3.fromRGB(255, 255, 255)
 	QuickCapture.TextSize = 20
 	QuickCapture.TextWrapped = true
@@ -14408,82 +14424,6 @@ addcmd('unaimbot', {'noaimbot', 'unaib', 'noaib'}, function(args, speaker)
     end
 end)
 
--- ##################################################################
--- #     [+] GODHAND: Универсальная версия Triggerbot (ПК + Моб.)   #
--- ##################################################################
-
-local function triggerbotLoop()
-    if not triggerbotEnabled or (os.clock() - lastTriggerTime < triggerbotSettings.delay) then
-        return
-    end
-
-    local localPlayer = Players.LocalPlayer
-    local camera = workspace.CurrentCamera
-    local targetPart = nil
-    
-    -- 1. Определяем цель в зависимости от платформы
-    if IsOnMobile then
-        -- МОБИЛЬНАЯ ЛОГИКА: Используем луч из центра экрана
-        local viewportCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-        local centerRay = camera:ScreenPointToRay(viewportCenter.X, viewportCenter.Y)
-        
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Blacklist
-        params.FilterDescendantsInstances = {localPlayer.Character}
-        params.IgnoreWater = true
-
-        local result = workspace:Raycast(centerRay.Origin, centerRay.Direction * triggerbotSettings.range, params)
-        if result then
-            targetPart = result.Instance
-        end
-    else
-        -- ЛОГИКА ДЛЯ ПК: Используем старый добрый GetMouse()
-        local mouse = localPlayer:GetMouse()
-        targetPart = mouse.Target
-    end
-
-    -- 2. Проверяем, есть ли цель и является ли она частью персонажа
-    if not targetPart or not targetPart.Parent or not targetPart.Parent:FindFirstChildOfClass("Humanoid") then
-        return
-    end
-    
-    local targetPlayer = Players:GetPlayerFromCharacter(targetPart.Parent)
-    
-    -- 3. Проверяем, не является ли цель нами или союзником
-    if not targetPlayer or targetPlayer == localPlayer then return end
-    if triggerbotSettings.teamCheck and targetPlayer.Team == localPlayer.Team then return end
-
-    -- 4. Проверяем, является ли часть тела валидной целью
-    local partName = targetPart.Name:lower()
-    local isHead = triggerbotSettings.checkHead and (partName:find("head"))
-    local isTorso = triggerbotSettings.checkTorso and (partName:find("torso"))
-    
-    if not isHead and not isTorso then return end
-
-    -- 5. Проверка видимости (Raycast) - для ПК, чтобы убедиться, что GetMouse не врет
-    if not IsOnMobile then
-        local origin = camera.CFrame.Position
-        local direction = (targetPart.Position - origin).Unit * triggerbotSettings.range
-        
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Blacklist
-        params.FilterDescendantsInstances = {localPlayer.Character}
-        params.IgnoreWater = true
-        
-        local result = workspace:Raycast(origin, direction, params)
-        if result and not result.Instance:IsDescendantOf(targetPlayer.Character) then
-            return -- Есть препятствие
-        end
-    end
-
-    -- 6. Если все проверки пройдены, стреляем
-    lastTriggerTime = os.clock()
-    pcall(function()
-        mouse1press()
-        task.wait() -- Минимальная задержка
-        mouse1release()
-    end)
-end
 
 -- Остальные новые команды...
 addcmd('vault', {}, function() notify("GODHAND", "Vault function is not yet implemented.") end)
@@ -14494,131 +14434,4 @@ task.spawn(function()
     StartPlayerDBScanner()
     StartPingNotifier()
     LoadQuickbinds()
-end)
-
--- ##################################################################
--- #         [+] GODHAND: HUB V4 - ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ          #
--- ##################################################################
-
-local hubWindow, hubTabButtons, hubContentPanes = nil, {}, {}
-local isHubOpen = false
-local currentlyEditingQbId = nil -- Для редактора Quickbinds
-
--- ОСНОВНАЯ ФУНКЦИЯ СОЗДАНИЯ ОКНА ХАБА
-local function createHubWindow()
-    if hubWindow and hubWindow.Parent then return end
-
-    -- [[ 1. СОЗДАНИЕ ОСНОВЫ ОКНА И ВКЛАДОК ]] --
-    hubWindow = Instance.new("Frame"); hubWindow.Name = "GODHAND_Hub"; hubWindow.Parent = ScaledHolder; hubWindow.Active = true; hubWindow.BackgroundTransparency = 1
-    hubWindow.Position = UDim2.new(0.5, -300, 0, -500); hubWindow.Size = UDim2.new(0, 600, 0, 400); hubWindow.ZIndex = 15
-    dragGUI(hubWindow)
-    local shadow = Instance.new("Frame"); shadow.Name = "shadow"; shadow.Parent = hubWindow; shadow.BackgroundColor3 = currentShade2
-    shadow.BorderSizePixel = 0; shadow.Size = UDim2.new(1, 0, 0, 20); shadow.ZIndex = 15; table.insert(shade2, shadow)
-    local popupText = Instance.new("TextLabel"); popupText.Name = "PopupText"; popupText.Parent = shadow; popupText.BackgroundTransparency = 1
-    popupText.Size = UDim2.new(1, 0, 0.95, 0); popupText.ZIndex = 15; popupText.Font = Enum.Font.SourceSansBold
-    popupText.TextSize = 16; popupText.Text = "GODHAND HUB"; popupText.TextColor3 = currentText1; table.insert(text1, popupText)
-    local exitButton = Instance.new("TextButton"); exitButton.Name = "Exit"; exitButton.Parent = shadow; exitButton.BackgroundTransparency = 1
-    exitButton.Position = UDim2.new(1, -20, 0, 0); exitButton.Size = UDim2.new(0, 20, 0, 20); exitButton.Text = ""; exitButton.ZIndex = 16
-    exitButton.MouseButton1Click:Connect(function() hubWindow:TweenPosition(UDim2.new(0.5, -300, 0, -500), "InOut", "Quart", 0.3, true); isHubOpen = false end)
-    local exitImage = Instance.new("ImageLabel"); exitImage.Parent = exitButton; exitImage.BackgroundTransparency = 1
-    exitImage.Position = UDim2.new(0, 5, 0, 5); exitImage.Size = UDim2.new(0, 10, 0, 10); exitImage.Image = getcustomasset("godhand/assets/close.png"); exitImage.ZIndex = 16
-    local background = Instance.new("Frame"); background.Name = "background"; background.Parent = hubWindow; background.Active = true
-    background.BackgroundColor3 = currentShade1; background.BorderSizePixel = 0; background.Position = UDim2.new(0, 0, 0, 20); background.Size = UDim2.new(1, 0, 1, -20)
-    background.ZIndex = 15; table.insert(shade1, background)
-    local tabContainer = Instance.new("Frame"); tabContainer.Name = "TabContainer"; tabContainer.Parent = background; tabContainer.BackgroundTransparency = 1
-    tabContainer.Size = UDim2.new(1, 0, 0, 30); tabContainer.ZIndex = 16
-    local tabLayout = Instance.new("UIListLayout"); tabLayout.Parent = tabContainer; tabLayout.FillDirection = Enum.FillDirection.Horizontal; tabLayout.Padding = UDim.new(0, 5)
-
-    local refreshFunctions = {}
-    local function switchTab(selectedTabName)
-        for name, button in pairs(hubTabButtons) do button.BackgroundColor3 = (name == selectedTabName and currentShade2 or currentShade3) end
-        for name, pane in pairs(hubContentPanes) do pane.Visible = (name == selectedTabName) end
-        if refreshFunctions[selectedTabName] then refreshFunctions[selectedTabName]() end -- Обновляем контент при переключении
-    end
-
-    local tabNames = {"Aimbot", "Quickbinds", "PlayerDB", "Processes"}
-    for i, name in ipairs(tabNames) do
-        local tabButton = Instance.new("TextButton"); tabButton.Name = name .. "Tab"; tabButton.Parent = tabContainer; tabButton.BackgroundColor3 = currentShade3
-        tabButton.Size = UDim2.new(0.25, -5, 1, 0); tabButton.Font = Enum.Font.SourceSansBold; tabButton.Text = name; tabButton.TextColor3 = currentText1; tabButton.TextSize = 16; tabButton.ZIndex = 17
-        tabButton.MouseButton1Click:Connect(function() switchTab(name) end)
-        table.insert(shade3, tabButton); table.insert(text1, tabButton); hubTabButtons[name] = tabButton
-        local contentPane = Instance.new("Frame"); contentPane.Name = name .. "Pane"; contentPane.Parent = background; contentPane.BackgroundTransparency = 1
-        contentPane.Position = UDim2.new(0, 0, 0, 30); contentPane.Size = UDim2.new(1, 0, 1, -30); contentPane.Visible = (i == 1); contentPane.ZIndex = 16
-        hubContentPanes[name] = contentPane
-    end
-
-    -- [[ 2. НАПОЛНЕНИЕ ВКЛАДОК ]] --
-
-    -- ### ВКЛАДКА AIMBOT ###
-    do
-        local aimbotPane = hubContentPanes.Aimbot
-        local aimbotLayout = Instance.new("UIListLayout"); aimbotLayout.Parent = aimbotPane; aimbotLayout.Padding = UDim.new(0, 8); aimbotLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        local function createSettingRow(parent, labelText) local row = Instance.new("Frame"); row.Parent = parent; row.BackgroundTransparency = 1; row.Size = UDim2.new(0.9, 0, 0, 35); local label = Instance.new("TextLabel"); label.Parent = row; label.BackgroundTransparency = 1; label.Size = UDim2.new(0.4, 0, 1, 0); label.Font = Enum.Font.SourceSans; label.Text = labelText .. ":"; label.TextColor3 = currentText1; label.TextSize = 18; label.TextXAlignment = Enum.TextXAlignment.Left; table.insert(text1, label); return row end
-        local function createTextboxSetting(parent, labelText, initialValue, callback) local row = createSettingRow(parent, labelText); local box = Instance.new("TextBox"); box.Parent = row; box.BackgroundColor3 = currentShade3; box.Position = UDim2.new(0.5, 0, 0.15, 0); box.Size = UDim2.new(0.5, 0, 0.7, 0); box.Font = Enum.Font.SourceSansBold; box.Text = tostring(initialValue); box.TextColor3 = currentText2; box.TextSize = 16; table.insert(shade3, box); table.insert(text2, box); box.FocusLost:Connect(function(enter) if enter then callback(box.Text) end end) end
-        local function createToggleSetting(parent, labelText, initialValue, callback) local row = createSettingRow(parent, labelText); local buttonFrame = Instance.new("Frame"); buttonFrame.Parent = row; buttonFrame.BackgroundColor3 = currentShade3; buttonFrame.Position = UDim2.new(0.9, 0, 0.15, 0); buttonFrame.Size = UDim2.new(0, 25, 0, 25); table.insert(shade3, buttonFrame); local onIndicator = Instance.new("Frame"); onIndicator.Parent = buttonFrame; onIndicator.BackgroundColor3 = currentShade2; onIndicator.Position = UDim2.new(0.5, -6, 0.5, -6); onIndicator.Size = UDim2.new(0, 12, 0, 12); onIndicator.BackgroundTransparency = initialValue and 0 or 1; table.insert(shade2, onIndicator); local toggleButton = Instance.new("TextButton"); toggleButton.Parent = buttonFrame; toggleButton.BackgroundTransparency = 1; toggleButton.Size = UDim2.new(1,0,1,0); toggleButton.Text = ""; toggleButton.MouseButton1Click:Connect(function() local newState = onIndicator.BackgroundTransparency == 1; onIndicator.BackgroundTransparency = newState and 0 or 1; callback(newState) end) end
-        local function createButtonSelectSetting(parent, labelText, options, initialValue, callback) local row = createSettingRow(parent, labelText); local selectButton = Instance.new("TextButton"); selectButton.Parent = row; selectButton.BackgroundColor3 = currentShade3; selectButton.Position = UDim2.new(0.5, 0, 0.15, 0); selectButton.Size = UDim2.new(0.5, 0, 0.7, 0); selectButton.Font = Enum.Font.SourceSansBold; selectButton.Text = initialValue; selectButton.TextColor3 = currentText2; selectButton.TextSize = 16; table.insert(shade3, selectButton); table.insert(text2, selectButton); local currentIndex = table.find(options, initialValue) or 1; selectButton.MouseButton1Click:Connect(function() currentIndex = (currentIndex % #options) + 1; local newValue = options[currentIndex]; selectButton.Text = newValue; callback(newValue) end) end
-        createTextboxSetting(aimbotPane, "FOV", aimbotSettings.fov, function(val) execCmd("aimbot fov " .. val) end)
-        createTextboxSetting(aimbotPane, "Smoothness", aimbotSettings.smoothness, function(val) execCmd("aimbot smoothness " .. val) end)
-        createTextboxSetting(aimbotPane, "Range", aimbotSettings.range, function(val) execCmd("aimbot range " .. val) end)
-        createButtonSelectSetting(aimbotPane, "Target Part", {"Head", "Root"}, aimbotSettings.targetPart, function(val) execCmd("aimbot target " .. val) end)
-        createToggleSetting(aimbotPane, "Team Check", aimbotSettings.teamCheck, function(val) execCmd("aimbot teamcheck " .. (val and "on" or "off")) end)
-        createToggleSetting(aimbotPane, "Show FOV Circle", aimbotSettings.showFov, function(val) execCmd("aimbot showfov " .. (val and "on" or "off")) end)
-    end
-    
-    -- ### ВКЛАДКА QUICKBINDS ###
-    do
-        local qbPane = hubContentPanes.Quickbinds
-        local qbList = Instance.new("ScrollingFrame"); qbList.Parent = qbPane; qbList.BackgroundColor3 = currentShade3; qbList.Size = UDim2.new(0.5, -10, 1, -40); qbList.Position = UDim2.new(0, 5, 0, 5); qbList.CanvasSize = UDim2.new(0,0,0,0); qbList.ScrollBarImageColor3 = currentScroll; qbList.ScrollBarThickness = 8; table.insert(shade3, qbList); table.insert(scroll, qbList)
-        local qbListLayout = Instance.new("UIListLayout"); qbListLayout.Parent = qbList; qbListLayout.Padding = UDim.new(0, 3)
-        local qbEditor = Instance.new("Frame"); qbEditor.Parent = qbPane; qbEditor.BackgroundColor3 = currentShade2; qbEditor.Size = UDim2.new(0.5, -10, 1, -10); qbEditor.Position = UDim2.new(0.5, 5, 0, 5); qbEditor.Visible = false; table.insert(shade2, qbEditor)
-        local qbEditorLayout = Instance.new("UIListLayout"); qbEditorLayout.Parent = qbEditor; qbEditorLayout.Padding = UDim.new(0,5); qbEditorLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        local editorTitle = Instance.new("TextLabel"); editorTitle.Parent = qbEditor; editorTitle.BackgroundTransparency = 1; editorTitle.Size = UDim2.new(0.9,0,0,25); editorTitle.Font = Enum.Font.SourceSansBold; editorTitle.Text = "Create/Edit Button"; editorTitle.TextColor3 = currentText1; editorTitle.TextSize = 18; table.insert(text1, editorTitle)
-        local nameBox = Instance.new("TextBox"); nameBox.Parent = qbEditor; nameBox.BackgroundColor3 = currentShade3; nameBox.Size = UDim2.new(0.9,0,0,30); nameBox.PlaceholderText = "Button Name"; nameBox.TextColor3 = currentText2; nameBox.Font = Enum.Font.SourceSans; nameBox.TextSize = 14; table.insert(shade3, nameBox); table.insert(text2, nameBox)
-        local cmdOnBox = Instance.new("TextBox"); cmdOnBox.Parent = qbEditor; cmdOnBox.BackgroundColor3 = currentShade3; cmdOnBox.Size = UDim2.new(0.9,0,0,30); cmdOnBox.PlaceholderText = "Command (On)"; cmdOnBox.TextColor3 = currentText2; cmdOnBox.Font = Enum.Font.SourceSans; cmdOnBox.TextSize = 14; table.insert(shade3, cmdOnBox); table.insert(text2, cmdOnBox)
-        local cmdOffBox = Instance.new("TextBox"); cmdOffBox.Parent = qbEditor; cmdOffBox.BackgroundColor3 = currentShade3; cmdOffBox.Size = UDim2.new(0.9,0,0,30); cmdOffBox.PlaceholderText = "Command (Off - for toggle)"; cmdOffBox.TextColor3 = currentText2; cmdOffBox.Font = Enum.Font.SourceSans; cmdOffBox.TextSize = 14; table.insert(shade3, cmdOffBox); table.insert(text2, cmdOffBox)
-        local saveButton = Instance.new("TextButton"); saveButton.Parent = qbEditor; saveButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50); saveButton.Size = UDim2.new(0.9,0,0,30); saveButton.Text = "Save"; saveButton.TextColor3 = Color3.new(1,1,1); saveButton.Font = Enum.Font.SourceSansBold; saveButton.TextSize = 16
-        local function refreshQuickbindsList() qbList:ClearAllChildren(); qbListLayout.Parent = qbList; qbEditor.Visible = false; for i, data in ipairs(AllQuickbinds) do local qbFrame = Instance.new("Frame"); qbFrame.Parent = qbList; qbFrame.BackgroundColor3 = currentShade1; qbFrame.Size = UDim2.new(1, -8, 0, 30); table.insert(shade1, qbFrame); local qbLabel = Instance.new("TextLabel"); qbLabel.Parent = qbFrame; qbLabel.BackgroundTransparency=1; qbLabel.Size=UDim2.new(1,-110,1,0); qbLabel.Text = data.Name; qbLabel.TextColor3 = currentText1; qbLabel.Font = Enum.Font.SourceSans; qbLabel.TextSize=14; qbLabel.TextXAlignment=Enum.TextXAlignment.Left; table.insert(text1, qbLabel); local editBtn = Instance.new("TextButton"); editBtn.Parent = qbFrame; editBtn.BackgroundColor3 = currentShade2; editBtn.Position=UDim2.new(1,-105,0,5); editBtn.Size=UDim2.new(0,50,0,20); editBtn.Text="Edit"; editBtn.TextColor3=currentText1; editBtn.Font=Enum.Font.SourceSansBold; editBtn.TextSize=14; table.insert(shade2, editBtn); table.insert(text1, editBtn); local delBtn = Instance.new("TextButton"); delBtn.Parent = qbFrame; delBtn.BackgroundColor3=Color3.fromRGB(180,50,50); delBtn.Position=UDim2.new(1,-50,0,5); delBtn.Size=UDim2.new(0,45,0,20); delBtn.Text="Del"; delBtn.TextColor3=Color3.new(1,1,1); delBtn.Font=Enum.Font.SourceSansBold; delBtn.TextSize=14; editBtn.MouseButton1Click:Connect(function() currentlyEditingQbId = data.ID; qbEditor.Visible = true; nameBox.Text = data.Name; if data.IsToggle then cmdOnBox.Text = data.Command.On; cmdOffBox.Text = data.Command.Off else cmdOnBox.Text = data.Command; cmdOffBox.Text = "" end end); delBtn.MouseButton1Click:Connect(function() execCmd("delbutton " .. data.Name); task.wait(0.1); refreshQuickbindsList() end) end; qbList.CanvasSize = UDim2.new(0, 0, 0, qbListLayout.AbsoluteContentSize.Y) end
-        saveButton.MouseButton1Click:Connect(function() local name = nameBox.Text; local cmdOn = cmdOnBox.Text; local cmdOff = cmdOffBox.Text; if name == "" or cmdOn == "" then return notify("Error", "Name and Command (On) are required.") end; local commandString = cmdOn .. (cmdOff ~= "" and (","..cmdOff) or ""); if currentlyEditingQbId then local oldName = nil; for _,d in ipairs(AllQuickbinds) do if d.ID == currentlyEditingQbId then oldName = d.Name; break; end end; if oldName then execCmd("delbutton "..oldName) end end; execCmd("createbutton " .. name .. " " .. commandString); task.wait(0.2); LoadQuickbinds(); refreshQuickbindsList(); qbEditor.Visible = false; currentlyEditingQbId = nil end)
-        local createButton = Instance.new("TextButton"); createButton.Parent = qbPane; createButton.BackgroundColor3=currentShade2; createButton.Size = UDim2.new(0.5,-12.5,0,25); createButton.Position = UDim2.new(0, 5, 1, -30); createButton.Text = "Create New"; createButton.TextColor3=currentText1; createButton.Font=Enum.Font.SourceSansBold; createButton.TextSize = 16; createButton.MouseButton1Click:Connect(function() currentlyEditingQbId = nil; qbEditor.Visible = true; nameBox.Text = ""; cmdOnBox.Text = ""; cmdOffBox.Text = "" end); table.insert(shade2, createButton); table.insert(text1, createButton)
-        refreshFunctions.Quickbinds = refreshQuickbindsList
-    end
-
-    -- ### ВКЛАДКА PLAYERDB ###
-    do
-        local pdbPane = hubContentPanes.PlayerDB
-        local searchBox = Instance.new("TextBox"); searchBox.Parent = pdbPane; searchBox.BackgroundColor3 = currentShade3; searchBox.Size = UDim2.new(1,-10,0,30); searchBox.Position = UDim2.new(0,5,0,5); searchBox.PlaceholderText = "Search player..."; searchBox.TextColor3 = currentText2; searchBox.Font = Enum.Font.SourceSans; searchBox.TextSize = 14; table.insert(shade3, searchBox); table.insert(text2, searchBox)
-        local pdbList = Instance.new("ScrollingFrame"); pdbList.Parent = pdbPane; pdbList.BackgroundColor3 = currentShade3; pdbList.Size = UDim2.new(0.4,-10,1,-45); pdbList.Position = UDim2.new(0,5,0,40); pdbList.CanvasSize = UDim2.new(0,0,0,0); pdbList.ScrollBarImageColor3 = currentScroll; pdbList.ScrollBarThickness = 8; table.insert(shade3, pdbList); table.insert(scroll, pdbList)
-        local pdbListLayout = Instance.new("UIListLayout"); pdbListLayout.Parent = pdbList; pdbListLayout.Padding = UDim.new(0,2)
-        local pdbDetails = Instance.new("ScrollingFrame"); pdbDetails.Parent = pdbPane; pdbDetails.BackgroundColor3 = currentShade2; pdbDetails.Size = UDim2.new(0.6,-10,1,-45); pdbDetails.Position = UDim2.new(0.4,5,0,40); pdbDetails.CanvasSize = UDim2.new(0,0,0,0); pdbDetails.ScrollBarImageColor3 = currentScroll; pdbDetails.ScrollBarThickness = 8; table.insert(shade2, pdbDetails); table.insert(scroll, pdbDetails)
-        local pdbDetailsLayout = Instance.new("UIListLayout"); pdbDetailsLayout.Parent = pdbDetails; pdbDetailsLayout.Padding = UDim.new(0,5)
-        local function displayPlayerDetails(userId) pdbDetails:ClearAllChildren(); pdbDetailsLayout.Parent = pdbDetails; local data = PlayerDatabase[tostring(userId)]; if not data then return end; local function addDetail(text) local label = Instance.new("TextLabel"); label.Parent = pdbDetails; label.BackgroundTransparency=1; label.Size=UDim2.new(1,-10,0,20); label.Text=text; label.TextColor3=currentText1; label.Font=Enum.Font.SourceSans; label.TextSize=14; label.TextXAlignment=Enum.TextXAlignment.Left; label.RichText=true; table.insert(text1, label) end; addDetail("<b>" .. data.DisplayName .. "</b> (@" .. data.Username .. ")"); addDetail("<b>User ID:</b> " .. userId); addDetail(" "); addDetail("<b><u>Encounters:</u></b>"); for placeId, encounterData in pairs(data.Encounters) do addDetail("  <b>Game:</b> " .. encounterData.PlaceName); for _, timestamp in ipairs(encounterData.Timestamps) do addDetail("    - " .. os.date("%Y-%m-%d %H:%M:%S", timestamp)) end end; pdbDetails.CanvasSize = UDim2.new(0,0,0,pdbDetailsLayout.AbsoluteContentSize.Y) end
-        local function populatePlayerList(filter) pdbList:ClearAllChildren(); pdbListLayout.Parent = pdbList; filter = filter:lower(); for userId, data in pairs(PlayerDatabase) do if filter == "" or data.Username:lower():find(filter, 1, true) or data.DisplayName:lower():find(filter, 1, true) then local playerBtn = Instance.new("TextButton"); playerBtn.Parent = pdbList; playerBtn.BackgroundColor3 = currentShade1; playerBtn.Size = UDim2.new(1,-8,0,25); playerBtn.Text = data.DisplayName; playerBtn.TextColor3 = currentText1; playerBtn.Font = Enum.Font.SourceSans; playerBtn.TextSize=14; table.insert(shade1, playerBtn); table.insert(text1, playerBtn); playerBtn.MouseButton1Click:Connect(function() displayPlayerDetails(userId) end) end end; pdbList.CanvasSize = UDim2.new(0,0,0,pdbListLayout.AbsoluteContentSize.Y) end
-        searchBox.FocusLost:Connect(function() populatePlayerList(searchBox.Text) end); refreshFunctions.PlayerDB = function() populatePlayerList(searchBox.Text) end
-    end
-
-    -- ### ВКЛАДКА PROCESSES ###
-    do
-        local procPane = hubContentPanes.Processes
-        local procList = Instance.new("ScrollingFrame"); procList.Parent = procPane; procList.BackgroundColor3 = currentShade3; procList.Size = UDim2.new(1, -10, 1, -40); procList.Position = UDim2.new(0, 5, 0, 5); procList.CanvasSize = UDim2.new(0,0,0,0); procList.ScrollBarImageColor3 = currentScroll; procList.ScrollBarThickness = 8; table.insert(shade3, procList); table.insert(scroll, procList)
-        local procLayout = Instance.new("UIListLayout"); procLayout.Parent = procList; procLayout.Padding = UDim.new(0, 3)
-        local function refreshProcesses() procList:ClearAllChildren(); procLayout.Parent = procList; local processes = ProcessManager:ListProcesses(); if #processes == 0 then local noProcLabel = Instance.new("TextLabel"); noProcLabel.Parent = procList; noProcLabel.BackgroundTransparency = 1; noProcLabel.Size = UDim2.new(1,0,0,30); noProcLabel.Text = "Нет активных процессов."; noProcLabel.TextColor3 = currentText1; noProcLabel.Font = Enum.Font.SourceSansItalic; noProcLabel.TextSize = 16; table.insert(text1, noProcLabel); return end; for i, procText in ipairs(processes) do local pid = tonumber(procText:match("PID: (%d+)")); local procFrame = Instance.new("Frame"); procFrame.Parent = procList; procFrame.BackgroundColor3 = currentShade1; procFrame.Size = UDim2.new(1, -8, 0, 30); table.insert(shade1, procFrame); local procLabel = Instance.new("TextLabel"); procLabel.Parent = procFrame; procLabel.BackgroundTransparency = 1; procLabel.Size = UDim2.new(1, -70, 1, 0); procLabel.Text = procText; procLabel.TextColor3 = currentText1; procLabel.Font = Enum.Font.SourceSans; procLabel.TextSize = 14; procLabel.TextXAlignment = Enum.TextXAlignment.Left; table.insert(text1, procLabel); local killButton = Instance.new("TextButton"); killButton.Parent = procFrame; killButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50); killButton.Position = UDim2.new(1, -65, 0, 5); killButton.Size = UDim2.new(0, 60, 0, 20); killButton.Text = "Kill"; killButton.TextColor3 = Color3.new(1,1,1); killButton.Font = Enum.Font.SourceSansBold; killButton.TextSize = 14; killButton.MouseButton1Click:Connect(function() execCmd("pkill " .. pid); task.wait(0.1); refreshProcesses() end) end; procList.CanvasSize = UDim2.new(0, 0, 0, procLayout.AbsoluteContentSize.Y) end
-        local buttonContainer = Instance.new("Frame"); buttonContainer.Parent = procPane; buttonContainer.BackgroundTransparency = 1; buttonContainer.Size = UDim2.new(1,-10,0,25); buttonContainer.Position = UDim2.new(0, 5, 1, -30)
-        local buttonLayout = Instance.new("UIListLayout"); buttonLayout.Parent = buttonContainer; buttonLayout.FillDirection = Enum.FillDirection.Horizontal; buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center; buttonLayout.Padding = UDim.new(0, 5)
-        local refreshButton = Instance.new("TextButton"); refreshButton.Parent = buttonContainer; refreshButton.BackgroundColor3 = currentShade2; refreshButton.Size = UDim2.new(0.5,-2.5,1,0); refreshButton.Text = "Refresh List"; refreshButton.TextColor3 = currentText1; refreshButton.Font = Enum.Font.SourceSansBold; refreshButton.TextSize = 16; refreshButton.MouseButton1Click:Connect(refreshProcesses); table.insert(shade2, refreshButton); table.insert(text1, refreshButton)
-        local killAllButton = Instance.new("TextButton"); killAllButton.Parent = buttonContainer; killAllButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50); killAllButton.Size = UDim2.new(0.5,-2.5,1,0); killAllButton.Text = "Kill All"; killAllButton.TextColor3 = currentText1; killAllButton.Font = Enum.Font.SourceSansBold; killAllButton.TextSize = 16; killAllButton.MouseButton1Click:Connect(function() execCmd("pkillall"); task.wait(0.1); refreshProcesses() end); table.insert(text1, killAllButton)
-        refreshFunctions.Processes = refreshProcesses
-    end
-
-    -- [[ 3. ЗАВЕРШЕНИЕ ИНИЦИАЛИЗАЦИИ ]] --
-    switchTab("Aimbot")
-end
-
--- КОМАНДА ДЛЯ ВЫЗОВА ХАБА
-addcmd('hub', {}, function(args, speaker)
-    if not hubWindow or not hubWindow.Parent then createHubWindow() end
-    if not isHubOpen then
-        hubWindow:TweenPosition(UDim2.new(0.5, -300, 0.5, -200), "InOut", "Quart", 0.5, true)
-        isHubOpen = true
-        if refreshFunctions.Aimbot then refreshFunctions.Aimbot() end -- Первичная загрузка
-    end
 end)
